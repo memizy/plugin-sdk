@@ -1,0 +1,32 @@
+{
+  "name": "memizy-plugin-sdk",
+  "version": "0.1.0",
+  "description": "Official TypeScript SDK for building Memizy plugins.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/memizy/plugin-api.git"
+  },
+  "keywords": [
+    "memizy",
+    "plugin",
+    "sdk",
+    "oqse",
+    "education"
+  ],
+  "author": "Memizy Team",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/memizy/plugin-api/issues"
+  },
+  "homepage": "https://github.com/memizy/plugin-api#readme",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
