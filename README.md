@@ -3,7 +3,7 @@
 # 🛠️ Memizy Plugin API & SDK
 **Build interactive study modules for the OQSE ecosystem.**
 
-![Version](https://img.shields.io/badge/npm-v1.0.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/npm-v0.1.0-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
 
 </div>
@@ -16,9 +16,8 @@ Memizy host applications use a **sandboxed iframe architecture** to render study
 
 ## 📦 Installation
 
-*(Assuming this will be published to npm)*
 ```bash
-npm install @memizy/plugin-api
+npm install @memizy/plugin-sdk
 
 ```
 
@@ -27,45 +26,41 @@ npm install @memizy/plugin-api
 Here is a complete example of how to build a plugin that renders a basic `flashcard`.
 
 ```javascript
-import { MemizyPlugin } from '@memizy/plugin-api';
+import { MemizyPlugin } from '@memizy/plugin-sdk';
 
-// 1. Define your Capability Manifest
-const manifest = {
-  id: "[https://my-domain.com/simple-flashcard](https://my-domain.com/simple-flashcard)",
-  appName: "Simple Flashcard Viewer",
-  capabilities: {
-    actions: ["render"],
-    types: ["flashcard"]
-  }
-};
-
-// 2. Initialize the SDK
-const plugin = new MemizyPlugin(manifest);
-
-// 3. Listen for incoming items from the Host App
-plugin.onRender((item) => {
-  // item is the raw OQSE JSON object
-  document.getElementById('front-text').innerHTML = item.front;
-  document.getElementById('back-text').innerHTML = item.back;
+// 1. Initialize the SDK (id must match the OQSE manifest inside index.html)
+const plugin = new MemizyPlugin({
+  id: 'https://my-domain.com/simple-flashcard',
+  version: '1.0.0',
 });
 
-// 4. Send results back to the Host App when the user clicks a button
-document.getElementById('btn-correct').addEventListener('click', () => {
-  plugin.submitResult(1.0); // 1.0 = 100% correct
+// 2. (Optional) Provide mock data for development outside the Memizy host
+plugin.useMockData([
+  { id: 'q1', type: 'flashcard', front: 'Hello', back: 'World' },
+]);
+
+// 3. Listen for the session to start and render items
+plugin.onInit(({ items }) => {
+  const item = items[0];
+  plugin.startItemTimer(item.id);
+
+  document.getElementById('front-text').textContent = item.front;
+  document.getElementById('back-text').textContent = item.back;
+
+  // 4. Report the result when the user clicks a button
+  document.getElementById('btn-correct').addEventListener('click', () => {
+    plugin.answer(item.id, true).complete();
+  });
+
+  document.getElementById('btn-wrong').addEventListener('click', () => {
+    plugin.answer(item.id, false).complete();
+  });
 });
-
-document.getElementById('btn-wrong').addEventListener('click', () => {
-  plugin.submitResult(0.0); // 0.0 = completely wrong
-});
-
-// 5. Tell the Host App we are ready!
-plugin.connect();
-
 ```
 
 ## 📚 Documentation
 
-For more details on the Manifest structure and advanced capabilities, please refer to the [OQSE Specification](https://www.google.com/search?q=https://github.com/memizy/oqse-specification).
+For more details on the Manifest structure and advanced capabilities, please refer to the [OQSE Specification](https://github.com/memizy/oqse-specification).
 
 <div align="center">
 <i>Maintained with ❤️ by the Memizy Team.</i>

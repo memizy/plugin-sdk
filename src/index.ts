@@ -4,7 +4,7 @@
  * Official TypeScript SDK for building Memizy plugins.
  * Abstracts the window.postMessage protocol described in plugin-api-v1.md.
  *
- * @version 1.0.0
+ * @version 0.1.0
  * @license MIT
  */
 
@@ -75,10 +75,15 @@ export interface CompletionOptions {
 }
 
 export interface MemizyPluginOptions {
-  /** MUST match the `id` field in the plugin's OQSE Application Manifest. */
-  pluginId: string;
-  /** SemVer string (e.g., "1.0.0"). */
-  pluginVersion: string;
+  /**
+   * Unique identifier for the plugin. MUST match the `id` field in the plugin's
+   * OQSE Application Manifest. Should be a controlled URL (e.g.,
+   * `"https://my-domain.com/my-plugin"`) or a URN-format UUID
+   * (e.g., `"urn:uuid:019aa600-abc1-7234-b678-c0ffee000001"`).
+   */
+  id: string;
+  /** SemVer version of this plugin (e.g., `"1.0.0"`). */
+  version: string;
   /**
    * Milliseconds to wait for INIT_SESSION before triggering standalone/mock
    * mode. Defaults to 2000.
@@ -108,13 +113,13 @@ type IncomingMessage =
  *
  * @example
  * ```typescript
- * const plugin = new MemizyPlugin({ pluginId: 'my-quiz', pluginVersion: '1.0.0' });
+ * const plugin = new MemizyPlugin({ id: 'https://my-domain.com/my-quiz', version: '1.0.0' });
  * plugin.useMockData([...]).onInit(({ items }) => render(items));
  * ```
  */
 export class MemizyPlugin {
-  private readonly pluginId: string;
-  private readonly pluginVersion: string;
+  private readonly id: string;
+  private readonly version: string;
   private readonly standaloneTimeout: number;
 
   // Registered callbacks
@@ -142,8 +147,8 @@ export class MemizyPlugin {
   private readonly messageListener: (event: MessageEvent) => void;
 
   constructor(options: MemizyPluginOptions) {
-    this.pluginId = options.pluginId;
-    this.pluginVersion = options.pluginVersion;
+    this.id = options.id;
+    this.version = options.version;
     this.standaloneTimeout = options.standaloneTimeout ?? 2000;
 
     this.messageListener = this.handleMessage.bind(this);
@@ -153,8 +158,8 @@ export class MemizyPlugin {
     // sees this signal, preventing the race condition where INIT_SESSION arrives
     // before the plugin's listener is registered.
     this.send('PLUGIN_READY', {
-      pluginId: this.pluginId,
-      pluginVersion: this.pluginVersion,
+      id: this.id,
+      version: this.version,
     });
   }
 
@@ -299,9 +304,8 @@ export class MemizyPlugin {
    * Report that the user answered an item.
    *
    * If `startItemTimer(itemId)` was called earlier, `timeSpent` is inferred
-   * automatically. Otherwise supply it via `options.timeSpent`.
-   *
-   * @throws {Error} if timeSpent cannot be determined.
+   * automatically. If neither a timer nor `options.timeSpent` is provided,
+   * `timeSpent` defaults to `0`.
    */
   answer(itemId: string, isCorrect: boolean, options: AnswerOptions = {}): this {
     let timeSpent = options.timeSpent;

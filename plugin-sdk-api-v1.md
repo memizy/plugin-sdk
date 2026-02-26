@@ -24,7 +24,7 @@
 
 The Memizy Plugin API allows developers to create custom interactive learning experiences (games, quizzes, simulators) that integrate with the Memizy platform. Plugins run inside a sandboxed `<iframe>` and communicate with the Host (Memizy Player) via a structured message protocol built on `window.postMessage`.
 
-**Plugin developers should use the official SDK** (`memizy-plugin-sdk`) rather than calling `window.postMessage` directly. The SDK abstracts the low-level protocol, provides type safety, handles the initialization handshake, and offers utilities for timers, progress tracking, and standalone development mode.
+**Plugin developers should use the official SDK** (`@memizy/plugin-sdk`) rather than calling `window.postMessage` directly. The SDK abstracts the low-level protocol, provides type safety, handles the initialization handshake, and offers utilities for timers, progress tracking, and standalone development mode.
 
 **Architecture:** Smart Host – Dumb Client
 
@@ -186,8 +186,8 @@ MUST be the first message sent by every plugin. Signals that the DOM is ready an
 {
   type: 'PLUGIN_READY',
   payload: {
-    pluginId: string,              // Matches the manifest id field
-    pluginVersion: string          // SemVer string, e.g. "1.0.0"
+    id: string,                    // Matches the manifest id field (URL or URN-UUID)
+    version: string                // SemVer string of the plugin, e.g. "1.0.0"
   }
 }
 ```
@@ -234,8 +234,6 @@ Sent when the plugin has exhausted its item queue or the user completes the expe
   type: 'SESSION_COMPLETED',
   payload: {
     score: number | null,          // Optional internal game score (0–100)
-    itemsAnswered: number,
-    itemsSkipped: number,
     totalTimeSpent: number         // Total session time in milliseconds
   }
 }
@@ -347,25 +345,22 @@ Sent for non-fatal errors that the Host should log (e.g., unknown item type enco
 
 ## SDK Reference
 
-The `memizy-plugin-sdk` is a zero-dependency TypeScript library that abstracts the full message protocol. It is the recommended (and for published plugins, required) way to build Memizy plugins.
+The `@memizy/plugin-sdk` is a zero-dependency TypeScript library that abstracts the full message protocol. It is the recommended (and for published plugins, required) way to build Memizy plugins.
 
-**Source:** [`../sdk/memizy-plugin-sdk.ts`](../sdk/memizy-plugin-sdk.ts)
+**Source:** [src/index.ts](src/index.ts)
 
 ### Installation
 
 ```bash
 # npm
-npm install memizy-plugin-sdk
-
-# or copy the standalone build into your project
-cp node_modules/memizy-plugin-sdk/dist/memizy-plugin-sdk.min.js public/
+npm install @memizy/plugin-sdk
 ```
 
-Or use the CDN build directly in a static HTML plugin:
+Or use the CDN build directly in a static HTML plugin via jsDelivr:
 
 ```html
 <script type="module">
-  import { MemizyPlugin } from 'https://cdn.memizy.com/sdk/v1/memizy-plugin-sdk.esm.js';
+  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk/dist/index.js';
 </script>
 ```
 
@@ -375,8 +370,9 @@ Or use the CDN build directly in a static HTML plugin:
 
 ```typescript
 const plugin = new MemizyPlugin({
-  pluginId: 'my-plugin-id',     // MUST match manifest id
-  pluginVersion: '1.0.0'        // SemVer
+  id: 'https://my-domain.com/my-plugin',  // MUST match manifest id (URL or URN-UUID)
+  version: '1.0.0',                       // SemVer of this plugin
+  standaloneTimeout: 2000,                // Optional: ms to wait before mock fallback
 });
 ```
 
@@ -397,7 +393,7 @@ plugin.onResumed((): void => { ... }): this
 plugin.onAborted((reason: AbortReason) => { ... }): this
 
 // Called when the Host sends CONFIG_UPDATE
-plugin.onConfigUpdate((config: Partial<SessionConfig>) => { ... }): this
+plugin.onConfigUpdate((config: Partial<Pick<SessionSettings, 'theme' | 'locale'>>) => { ... }): this
 
 // Called when the Host sends HINT_RESPONSE
 plugin.onHint((response: HintResponsePayload) => { ... }): this
@@ -481,10 +477,12 @@ plugin.isStandalone(): boolean
 #### Minimal plugin (TypeScript)
 
 ```typescript
-import { MemizyPlugin } from 'memizy-plugin-sdk';
-import type { OQSEItem } from 'memizy-plugin-sdk/types';
+import { MemizyPlugin, OQSEItem } from '@memizy/plugin-sdk';
 
-const plugin = new MemizyPlugin({ pluginId: 'my-quiz', pluginVersion: '1.0.0' });
+const plugin = new MemizyPlugin({
+  id: 'https://my-domain.com/my-quiz',
+  version: '1.0.0',
+});
 
 plugin
   .useMockData([
@@ -522,7 +520,7 @@ function onUserAnswer(itemId: string, isCorrect: boolean, rawAnswer: string) {
   <script type="application/oqse-manifest+json">
   {
     "version": "1.0",
-    "id": "my-quiz",
+    "id": "https://my-domain.com/my-quiz",
     "appName": "My Quiz Plugin",
     "capabilities": {
       "actions": ["render"],
@@ -530,14 +528,16 @@ function onUserAnswer(itemId: string, isCorrect: boolean, rawAnswer: string) {
     }
   }
   </script>
-  <script src="memizy-plugin-sdk.min.js"></script>
 </head>
 <body>
 <div id="app"></div>
-<script>
-  const plugin = new MemizyPlugin.MemizyPlugin({
-    pluginId: 'my-quiz',
-    pluginVersion: '1.0.0'
+
+<script type="module">
+  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk/dist/index.js';
+
+  const plugin = new MemizyPlugin({
+    id: 'https://my-domain.com/my-quiz',
+    version: '1.0.0'
   });
 
   plugin
@@ -545,21 +545,23 @@ function onUserAnswer(itemId: string, isCorrect: boolean, rawAnswer: string) {
     .onInit(({ items, settings }) => {
       console.log('Session started, locale:', settings.locale);
       renderQuestion(items[0]);
-    })
-    .onAborted(() => {
-      clearInterval(gameLoop);
     });
 
   function renderQuestion(item) {
     const app = document.getElementById('app');
     app.innerHTML = `<h2>${item.question}</h2>
-      <button onclick="submitAnswer('${item.id}', true)">Correct</button>
-      <button onclick="submitAnswer('${item.id}', false)">Wrong</button>`;
-    plugin.startItemTimer(item.id);
-  }
+      <button id="btn-correct">Correct</button>
+      <button id="btn-wrong">Wrong</button>`;
 
-  function submitAnswer(itemId, isCorrect) {
-    plugin.answer(itemId, isCorrect).complete();
+    plugin.startItemTimer(item.id);
+
+    // In ES modules, use addEventListener instead of inline onclick
+    document.getElementById('btn-correct').addEventListener('click', () => {
+      plugin.answer(item.id, true).complete();
+    });
+    document.getElementById('btn-wrong').addEventListener('click', () => {
+      plugin.answer(item.id, false).complete();
+    });
   }
 </script>
 </body>
@@ -616,7 +618,7 @@ cd my-plugin
 npm install
 
 # 3. Install the SDK
-npm install memizy-plugin-sdk
+npm install @memizy/plugin-sdk
 
 # 4. Start the dev server
 npm run dev
@@ -642,7 +644,7 @@ npm run build
     "preview": "vite preview"
   },
   "dependencies": {
-    "memizy-plugin-sdk": "^1.0.0"
+    "@memizy/plugin-sdk": "^0.1.0"
   },
   "devDependencies": {
     "vite": "^6.0.0",
@@ -714,7 +716,7 @@ Deploy the contents of `dist/` as a static site (GitHub Pages, Cloudflare Pages,
 
 ## Plugin ID
 
-`your-plugin-id` (as declared in the OQSE manifest inside `index.html`)
+`https://your-domain.com/your-plugin` (as declared in the OQSE manifest `id` field inside `index.html` — MUST be a URL or URN-UUID)
 
 ## License
 
