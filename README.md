@@ -3,7 +3,7 @@
 # 🛠️ Memizy Plugin API & SDK
 **Build interactive study modules for the OQSE ecosystem.**
 
-![Version](https://img.shields.io/badge/npm-v0.1.2-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/npm-v0.1.4-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
 
 </div>
@@ -63,7 +63,7 @@ plugin.useMockData([
 ]);
 
 // 3. Listen for the session to start and render items
-plugin.onInit(({ items }) => {
+plugin.onInit(({ items, assets }) => {
   const item = items[0];
   plugin.startItemTimer(item.id);
 

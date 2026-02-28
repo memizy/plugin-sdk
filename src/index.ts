@@ -4,7 +4,7 @@
  * Official TypeScript SDK for building Memizy plugins.
  * Abstracts the window.postMessage protocol described in plugin-api-v1.md.
  *
- * @version 0.1.2
+ * @version 0.1.4
  * @license MIT
  */
 
@@ -16,6 +16,33 @@
 export interface OQSEItem {
   id: string;
   type: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Standardized OQSE media object. Represents an image, audio, video, or 3D
+ * model asset referenced from Rich Content fields via `<asset:key />` tags
+ * or from custom item properties like `targetAsset`.
+ *
+ * In standalone mode the SDK resolves relative `value` paths to absolute URLs
+ * before delivering the payload to the plugin.
+ */
+export interface MediaObject {
+  /** Media type. */
+  type: 'image' | 'audio' | 'video' | 'model';
+  /** URI of the resource — absolute URL or relative path within an OQSE container. */
+  value: string;
+  /** MIME type (e.g., `"image/png"`, `"model/gltf-binary"`). */
+  mimeType?: string;
+  /** Alternative text for accessibility (REQUIRED for images). */
+  altText?: string;
+  /** Caption displayed alongside the media. */
+  caption?: string;
+  /** Preferred width in pixels (rendering hint). */
+  width?: number;
+  /** Preferred height in pixels (rendering hint). */
+  height?: number;
+  /** Additional properties from the OQSE spec or extensions. */
   [key: string]: unknown;
 }
 
@@ -41,6 +68,14 @@ export interface InitSessionPayload {
   sessionId: string;
   items: OQSEItem[];
   settings: SessionSettings;
+  /**
+   * Set-level shared assets from `meta.assets`. Plugins SHOULD look up asset
+   * keys here when they are not found in `item.assets` (OQSE fallback rule).
+   *
+   * In standalone mode the SDK resolves all relative `value` paths to absolute
+   * URLs automatically.
+   */
+  assets: Record<string, MediaObject>;
 }
 
 export type AbortReason = 'user_exit' | 'timeout' | 'host_error';
@@ -89,6 +124,13 @@ export interface MemizyPluginOptions {
    * mode. Defaults to 2000.
    */
   standaloneTimeout?: number;
+  /**
+   * When `true`, the SDK logs lifecycle events (standalone detection, OQSE
+   * fetch, payload summary, asset resolution) to the browser console.
+   * Useful during development; leave disabled in production.
+   * Defaults to `false`.
+   */
+  debug?: boolean;
 }
 
 // Internal message envelope
@@ -231,6 +273,7 @@ export class MemizyPlugin {
   private readonly id: string;
   private readonly version: string;
   private readonly standaloneTimeout: number;
+  private readonly debugMode: boolean;
 
   // Registered callbacks
   private initHandler: ((payload: InitSessionPayload) => void) | null = null;
@@ -248,6 +291,7 @@ export class MemizyPlugin {
   // Mock data for standalone / dev mode
   private mockItems: OQSEItem[] | null = null;
   private mockSettings: Partial<SessionSettings> | null = null;
+  private mockAssets: Record<string, MediaObject> | null = null;
   private standaloneTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Whether INIT_SESSION (or standalone equivalent) has been received
@@ -263,6 +307,7 @@ export class MemizyPlugin {
     this.id = options.id;
     this.version = options.version;
     this.standaloneTimeout = options.standaloneTimeout ?? 2000;
+    this.debugMode = options.debug ?? false;
 
     this.messageListener = this.handleMessage.bind(this);
     window.addEventListener('message', this.messageListener);
@@ -274,6 +319,8 @@ export class MemizyPlugin {
       id: this.id,
       version: this.version,
     });
+
+    this.log(`SDK v0.1.4 loaded — id=${this.id}, standalone=${window.self === window.top}`);
 
     // Kick off standalone-mode detection after the current synchronous call
     // stack completes (so onInit has already been registered via chaining).
@@ -287,6 +334,11 @@ export class MemizyPlugin {
   private send<T extends string, P>(type: T, payload?: P): void {
     const message = payload !== undefined ? { type, payload } : { type };
     window.parent.postMessage(message, '*');
+  }
+
+  /** Logs a message to the console when `debug: true` is set. */
+  private log(...args: unknown[]): void {
+    if (this.debugMode) console.log('[memizy-plugin-sdk]', ...args);
   }
 
   private handleMessage(event: MessageEvent): void {
@@ -306,15 +358,18 @@ export class MemizyPlugin {
           this.standaloneTimer = null;
         }
         this.sessionStartTime = Date.now();
+        this.log('INIT_SESSION received from host');
         this.initHandler?.(msg.payload as InitSessionPayload);
         break;
       }
       case 'SESSION_RESUMED': {
+        this.log('SESSION_RESUMED');
         this.resumedHandler?.();
         break;
       }
       case 'SESSION_ABORTED': {
         const reason = (msg.payload as { reason: AbortReason } | undefined)?.reason ?? 'user_exit';
+        this.log('SESSION_ABORTED reason:', reason);
         this.abortedHandler?.(reason);
         this.destroy();
         break;
@@ -354,8 +409,10 @@ export class MemizyPlugin {
     const setUrl = params.get('set');
 
     if (setUrl) {
+      this.log('Standalone: ?set= detected, fetching', setUrl);
       void this.fetchOqseAndInit(setUrl);
     } else {
+      this.log('Standalone: no ?set= param, showing URL dialog');
       this.injectStandaloneUi();
     }
   }
@@ -368,6 +425,8 @@ export class MemizyPlugin {
     url: string,
     onError?: (msg: string) => void,
   ): Promise<void> {
+    let payload: InitSessionPayload;
+
     try {
       const resp = await fetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status} — ${resp.statusText}`);
@@ -385,6 +444,8 @@ export class MemizyPlugin {
       const metaAssets = (meta?.['assets'] ?? {}) as Record<string, Record<string, unknown>>;
       MemizyPlugin.resolveAssetValues(metaAssets, baseUrl);
 
+      this.log(`Fetched OQSE: ${rawItems.length} items, meta.assets keys:`, Object.keys(metaAssets));
+
       // Resolve relative paths in each item.assets (item-level media)
       for (const item of rawItems) {
         const itemAssets = (item['assets'] ?? {}) as Record<string, Record<string, unknown>>;
@@ -393,9 +454,10 @@ export class MemizyPlugin {
         }
       }
 
-      const payload: InitSessionPayload = {
+      payload = {
         sessionId: `standalone-${Date.now()}`,
         items: rawItems,
+        assets: metaAssets as Record<string, MediaObject>,
         settings: {
           shuffle: false,
           masteryMode: false,
@@ -405,20 +467,25 @@ export class MemizyPlugin {
           fuel: { balance: 0, multiplier: 1 },
         },
       };
-
-      this.initialized = true;
-      if (this.standaloneTimer !== null) {
-        clearTimeout(this.standaloneTimer);
-        this.standaloneTimer = null;
-      }
-      this.removeStandaloneUi();
-      this.sessionStartTime = Date.now();
-      this.initHandler?.(payload);
+      this.log('Payload built, assets:', Object.keys(payload.assets));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[memizy-plugin-sdk] Standalone fetch failed:', msg);
       onError?.(msg);
+      return;
     }
+
+    // Activate session OUTSIDE the try-catch so plugin errors in onInit
+    // propagate normally instead of being silently swallowed.
+    this.initialized = true;
+    if (this.standaloneTimer !== null) {
+      clearTimeout(this.standaloneTimer);
+      this.standaloneTimer = null;
+    }
+    this.removeStandaloneUi();
+    this.sessionStartTime = Date.now();
+    this.log('Calling onInit handler');
+    this.initHandler?.(payload);
   }
 
   /**
@@ -525,6 +592,7 @@ export class MemizyPlugin {
     return {
       sessionId: `mock-${Date.now()}`,
       items: this.mockItems ?? [],
+      assets: this.mockAssets ?? {},
       settings: defaultSettings,
     };
   }
@@ -534,6 +602,7 @@ export class MemizyPlugin {
     if (this.initialized || this.mockItems === null) return;
     if (this.standaloneTimer !== null) return; // already scheduled
 
+    this.log(`Mock fallback scheduled (${this.standaloneTimeout}ms)`);
     this.standaloneTimer = setTimeout(() => {
       if (!this.initialized) {
         this.triggerMock();
@@ -758,12 +827,19 @@ export class MemizyPlugin {
    *
    * Call this before `onInit()` so the mock fires correctly:
    * ```typescript
-   * plugin.useMockData(mockItems).onInit(({ items }) => render(items));
+   * plugin.useMockData(mockItems, { assets }).onInit(({ items }) => render(items));
    * ```
    */
-  useMockData(items: OQSEItem[], settings?: Partial<SessionSettings>): this {
+  useMockData(
+    items: OQSEItem[],
+    options?: {
+      settings?: Partial<SessionSettings>;
+      assets?: Record<string, MediaObject>;
+    },
+  ): this {
     this.mockItems = items;
-    this.mockSettings = settings ?? null;
+    this.mockSettings = options?.settings ?? null;
+    this.mockAssets = options?.assets ?? null;
     // Suppress the auto standalone UI if it was already injected
     this.removeStandaloneUi();
     this.scheduleMockFallback();

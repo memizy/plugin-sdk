@@ -105,6 +105,7 @@ Sent in response to `PLUGIN_READY`. Contains the complete study material for the
   payload: {
     sessionId: "uuid-of-session",   // Unique ID for this play session
     items: OQSEItem[],               // Full OQSE items array (subset of file)
+    assets: Record<string, MediaObject>,  // Set-level shared assets from meta.assets
     settings: {
       shuffle: boolean,             // Whether items were shuffled by the host
       masteryMode: boolean,         // Only serve items below mastery threshold
@@ -373,6 +374,7 @@ const plugin = new MemizyPlugin({
   id: 'https://my-domain.com/my-plugin',  // MUST match manifest id (URL or URN-UUID)
   version: '1.0.0',                       // SemVer of this plugin
   standaloneTimeout: 2000,                // Optional: ms to wait before mock fallback
+  debug: true,                            // Optional: log SDK lifecycle events to console
 });
 ```
 
@@ -421,7 +423,11 @@ This means plugins always receive absolute URLs in `item.assets[key].value` rega
 
 ```typescript
 // Called when the Host sends INIT_SESSION
-plugin.onInit((payload: InitSessionPayload) => { ... }): this
+plugin.onInit((payload: InitSessionPayload) => {
+  // payload.items    — OQSE items for this session
+  // payload.assets   — set-level shared assets (meta.assets), pre-resolved
+  // payload.settings — session settings (theme, locale, fuel, etc.)
+}): this
 
 // Called when the Host sends SESSION_RESUMED
 plugin.onResumed((): void => { ... }): this
@@ -499,7 +505,10 @@ plugin.clearItemTimer(itemId: string): this
 // Register mock items to be used in standalone mode.
 // Suppresses the built-in URL-input dialog; onInit fires after standaloneTimeout ms
 // if no INIT_SESSION message arrives from a host.
-plugin.useMockData(items: OQSEItem[], settings?: Partial<SessionSettings>): this
+plugin.useMockData(items: OQSEItem[], options?: {
+  settings?: Partial<SessionSettings>;
+  assets?: Record<string, MediaObject>;
+}): this
 
 // Manually trigger onInit with mock data immediately (useful for unit tests)
 plugin.triggerMock(): this
@@ -526,7 +535,7 @@ plugin
   .useMockData([
     { id: 'q1', type: 'flashcard', question: 'What is 2+2?', answer: '4' }
   ])
-  .onInit(({ items }) => {
+  .onInit(({ items, assets }) => {
     renderItems(items);
   });
 
@@ -580,7 +589,7 @@ function onUserAnswer(itemId: string, isCorrect: boolean, rawAnswer: string) {
 
   plugin
     .useMockData([{ id: 'q1', type: 'flashcard', question: 'Test?', answer: 'Yes' }])
-    .onInit(({ items, settings }) => {
+    .onInit(({ items, assets, settings }) => {
       console.log('Session started, locale:', settings.locale);
       renderQuestion(items[0]);
     });
@@ -682,7 +691,7 @@ npm run build
     "preview": "vite preview"
   },
   "dependencies": {
-    "@memizy/plugin-sdk": "^0.1.2"
+    "@memizy/plugin-sdk": "^0.1.4"
   },
   "devDependencies": {
     "vite": "^6.0.0",
