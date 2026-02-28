@@ -337,7 +337,7 @@ Sent for non-fatal errors that the Host should log (e.g., unknown item type enco
 3. **Touch-first.** All interactive targets MUST be at least 44×44 px — the same standard used by the Memizy app itself.
 4. **State ownership.** Plugins are stateless with respect to persistent data. They manage only visual / transient state. The Host is the sole source of truth for progress, Fuel, and SRS data.
 5. **Graceful fallback.** If a plugin receives an item type it does not support, it MUST send `ITEM_SKIPPED` with `reason: 'not_supported'` and continue with the next item. It MUST NOT crash.
-6. **Standalone / Dev mode.** When the `INIT_SESSION` message is not received within 2 seconds of `PLUGIN_READY` being sent, the SDK will automatically fire the `onInit` callback with mock data (if `useMockData()` was called). This allows developing and testing plugins outside the Memizy host environment.
+6. **Standalone / Dev mode.** The SDK detects when it is running outside a Memizy host frame (`window.self === window.top`) and automatically enters standalone mode. The developer's `onInit` callback is called identically in all cases — no extra code is required in the plugin. See the _Standalone Mode_ section of the SDK Reference for the full priority chain.
 7. **No external tracking.** Plugins MUST NOT include third-party analytics or tracking scripts. All telemetry flows through the Host via the message protocol.
 8. **Manifest required.** Every plugin MUST embed a valid OQSE Application Manifest (see [`open-study-exchange-v1.md`](open-study-exchange-v1.md), section 2.1) in a `<script type="application/oqse-manifest+json">` tag.
 
@@ -377,6 +377,43 @@ const plugin = new MemizyPlugin({
 ```
 
 The constructor immediately registers the `message` event listener and sends `PLUGIN_READY` to the host.
+
+---
+
+#### Standalone Mode
+
+The SDK automatically detects when the plugin is not running inside a Memizy host frame (`window.self === window.top`) and handles the session startup without any extra plugin code.
+
+**Priority chain (evaluated in order):**
+
+| # | Condition | Action |
+|---|-----------|--------|
+| 1 | Host iframe — `INIT_SESSION` postMessage arrives | Normal path; `onInit` fired by host message |
+| 2 | `useMockData()` was called | `onInit` fired after `standaloneTimeout` ms (default: 2000) if no host message |
+| 3 | URL contains `?set=<url>` | OQSE JSON fetched automatically from that URL; `onInit` fired |
+| 4 | None of the above | Built-in Shadow DOM URL-input dialog injected by the SDK |
+
+**`?set=` quick-launch URL**
+
+The recommended development workflow for standalone plugins is to serve the plugin locally and pass the study-set URL as a query parameter:
+
+```
+http://localhost:5173/index.html?set=https://example.com/my-set/data.oqse.json
+```
+
+The SDK fetches the URL, parses the `items` array from the OQSE JSON, and fires `onInit` with a synthetic `InitSessionPayload`. The plugin source code remains completely unchanged.
+
+**Built-in URL dialog**
+
+When neither a `?set=` param nor mock data is present, the SDK injects a fully isolated Shadow DOM overlay into the page. The user (developer) can paste any OQSE file URL and click **Load**. On success the overlay is removed and `onInit` fires normally.
+
+**Automatic asset resolution**
+
+In standalone mode the SDK automatically resolves all relative `MediaObject.value` paths inside `meta.assets` and every `item.assets` entry to absolute URLs, using the base URL of the fetched OQSE file. For example, if the OQSE file lives at `https://example.com/sets/geo/data.json` and an asset has `"value": "assets/map.png"`, the SDK rewrites it to `"value": "https://example.com/sets/geo/assets/map.png"` before calling `onInit`. Values that already start with a scheme (e.g., `https://`, `data:`) are left untouched.
+
+This means plugins always receive absolute URLs in `item.assets[key].value` regardless of whether the OQSE file used relative paths.
+
+> **Note:** Custom extension fields on items (e.g. `_assetUrl`) are **not** resolved automatically — only standard OQSE `assets` dictionaries are processed. If a plugin uses non-standard fields with relative paths, it must resolve them itself using the source URL available from `new URLSearchParams(location.search).get('set')`.
 
 ---
 
@@ -460,13 +497,14 @@ plugin.clearItemTimer(itemId: string): this
 
 ```typescript
 // Register mock items to be used in standalone mode.
-// If INIT_SESSION is not received within 2s, onInit fires with this data.
+// Suppresses the built-in URL-input dialog; onInit fires after standaloneTimeout ms
+// if no INIT_SESSION message arrives from a host.
 plugin.useMockData(items: OQSEItem[], settings?: Partial<SessionSettings>): this
 
-// Manually trigger onInit with mock data (useful for unit tests)
+// Manually trigger onInit with mock data immediately (useful for unit tests)
 plugin.triggerMock(): this
 
-// Returns true when running outside the Memizy host (no parent origin)
+// Returns true when running outside the Memizy host (window.self === window.top)
 plugin.isStandalone(): boolean
 ```
 
@@ -644,7 +682,7 @@ npm run build
     "preview": "vite preview"
   },
   "dependencies": {
-    "@memizy/plugin-sdk": "^0.1.0"
+    "@memizy/plugin-sdk": "^0.1.2"
   },
   "devDependencies": {
     "vite": "^6.0.0",

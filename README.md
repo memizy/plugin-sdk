@@ -3,7 +3,7 @@
 # 🛠️ Memizy Plugin API & SDK
 **Build interactive study modules for the OQSE ecosystem.**
 
-![Version](https://img.shields.io/badge/npm-v0.1.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/npm-v0.1.2-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
 
 </div>
@@ -20,6 +20,29 @@ Memizy host applications use a **sandboxed iframe architecture** to render study
 npm install @memizy/plugin-sdk
 
 ```
+
+## 🧭 Standalone Mode
+
+The SDK automatically detects when the plugin is running outside a Memizy host (i.e. opened directly in a browser tab) and enters **Standalone Mode**. The developer's `onInit` callback is called identically in all cases — no extra code is needed in the plugin.
+
+**Priority order:**
+
+| # | Condition | Behaviour |
+|---|-----------|-----------|
+| 1 | Running inside the Memizy iframe | Waits for `INIT_SESSION` postMessage from host |
+| 2 | `useMockData()` was called | Fires `onInit` after `standaloneTimeout` ms if no host message arrives |
+| 3 | `?set=<url>` query parameter present | Fetches the OQSE JSON from that URL and fires `onInit` automatically |
+| 4 | None of the above | Injects a built-in Shadow DOM URL-input dialog where you can paste any OQSE file URL |
+
+**Using `?set=` during development:**
+
+```
+http://localhost:5173/index.html?set=https://example.com/my-set/data.oqse.json
+```
+
+This is the recommended workflow for testing standalone plugins: serve the plugin locally and pass the study-set URL as a query parameter.
+
+All relative `MediaObject.value` paths in `meta.assets` and `item.assets` are automatically resolved to absolute `https://` URLs using the OQSE file's base URL, so plugins always receive ready-to-use asset URLs.
 
 ## 🚀 Quick Start: Building a Simple Flashcard Player
 

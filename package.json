@@ -1,6 +1,6 @@
 {
   "name": "@memizy/plugin-sdk",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Official TypeScript SDK for building Memizy plugins.",
   "type": "module",
   "main": "dist/index.js",
