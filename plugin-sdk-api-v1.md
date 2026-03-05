@@ -711,7 +711,7 @@ npm run build
     "preview": "vite preview"
   },
   "dependencies": {
-    "@memizy/plugin-sdk": "^0.2.0"
+    "@memizy/plugin-sdk": "^0.3.0"
   },
   "devDependencies": {
     "vite": "^6.0.0",

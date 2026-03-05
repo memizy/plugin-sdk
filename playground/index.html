@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Memizy Plugin SDK — Playground</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: #f3f4f6;
+        color: #111827;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 32px 16px 80px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 32px;
+      }
+      header h1 { font-size: 1.5rem; font-weight: 700; }
+      header .badge {
+        background: #FF6B00;
+        color: #fff;
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 9999px;
+        letter-spacing: 0.04em;
+      }
+
+      #card-area {
+        width: 100%;
+        max-width: 640px;
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+        padding: 32px;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        margin-bottom: 24px;
+      }
+      #card-area .waiting {
+        font-size: 2rem;
+        margin-bottom: 12px;
+      }
+      #card-area .subtitle {
+        color: #6b7280;
+        font-size: 0.9rem;
+      }
+      #item-id   { font-size: 0.75rem; color: #9ca3af; margin-top: 8px; }
+      #item-type { font-size: 0.75rem; font-weight: 600; color: #FF6B00; margin-bottom: 12px; }
+      #item-question { font-size: 1.3rem; font-weight: 600; line-height: 1.4; }
+      #item-answer { font-size: 1rem; color: #374151; margin-top: 16px; padding: 12px; background: #f9fafb; border-radius: 8px; width: 100%; display: none; }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        max-width: 640px;
+        width: 100%;
+        margin-bottom: 24px;
+        justify-content: center;
+      }
+      button {
+        padding: 10px 18px;
+        border: none;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      button:hover { opacity: 0.85; }
+      button:disabled { opacity: 0.4; pointer-events: none; }
+      .btn-correct   { background: #22c55e; color: #fff; }
+      .btn-wrong     { background: #ef4444; color: #fff; }
+      .btn-skip      { background: #e5e7eb; color: #374151; }
+      .btn-reveal    { background: #6366f1; color: #fff; }
+      .btn-next      { background: #FF6B00; color: #fff; }
+      .btn-progress  { background: #0ea5e9; color: #fff; }
+      .btn-exit      { background: #374151; color: #fff; }
+      .btn-mock      { background: #a855f7; color: #fff; }
+      .btn-asset     { background: #f59e0b; color: #fff; }
+
+      #progress-panel {
+        width: 100%;
+        max-width: 640px;
+        margin-bottom: 24px;
+        display: none;
+      }
+      #progress-panel h2 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
+      #progress-panel pre {
+        background: #1e293b;
+        color: #e2e8f0;
+        padding: 16px;
+        border-radius: 10px;
+        font-size: 0.78rem;
+        overflow-x: auto;
+        line-height: 1.6;
+      }
+
+      #console {
+        width: 100%;
+        max-width: 640px;
+        background: #1e293b;
+        color: #94a3b8;
+        border-radius: 10px;
+        padding: 16px;
+        font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+        font-size: 0.78rem;
+        line-height: 1.8;
+        max-height: 260px;
+        overflow-y: auto;
+      }
+      #console .log-ts  { color: #475569; margin-right: 8px; }
+      #console .log-ok  { color: #86efac; }
+      #console .log-err { color: #fca5a5; }
+      #console .log-inf { color: #7dd3fc; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>🚀 Plugin SDK Playground</h1>
+      <span class="badge">v0.2.0</span>
+    </header>
+
+    <div id="card-area">
+      <div class="waiting">⏳</div>
+      <div class="subtitle">Waiting for session to initialise…</div>
+    </div>
+
+    <div class="controls">
+      <button id="btn-reveal"   class="btn-reveal"   disabled>Reveal answer</button>
+      <button id="btn-correct"  class="btn-correct"  disabled>✓ Correct</button>
+      <button id="btn-wrong"    class="btn-wrong"    disabled>✗ Wrong</button>
+      <button id="btn-skip"     class="btn-skip"     disabled>Skip →</button>
+      <button id="btn-next"     class="btn-next"     disabled>Next item</button>
+    </div>
+
+    <div class="controls">
+      <button id="btn-mock"     class="btn-mock">▶ Trigger mock now</button>
+      <button id="btn-asset"    class="btn-asset">⬆ Upload test asset</button>
+      <button id="btn-progress" class="btn-progress">📊 Print progress</button>
+      <button id="btn-exit"     class="btn-exit"    disabled>⏹ Exit (score 99)</button>
+    </div>
+
+    <div id="progress-panel">
+      <h2>Progress snapshot</h2>
+      <pre id="progress-json"></pre>
+    </div>
+
+    <div id="console">
+      <span class="log-inf">▶ SDK loaded — open DevTools console for [memizy-plugin-sdk] logs.</span><br/>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

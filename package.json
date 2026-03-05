@@ -3,22 +3,25 @@
   "version": "0.2.0",
   "description": "Official TypeScript SDK for building Memizy plugins.",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/memizy-sdk.umd.cjs",
+  "module": "./dist/memizy-sdk.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/memizy-sdk.js",
+      "require": "./dist/memizy-sdk.umd.cjs"
     }
   },
   "files": [
     "dist",
-    "src",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "dev": "vite",
+    "build": "vite build && tsc --emitDeclarationOnly",
+    "preview": "vite preview",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -39,6 +42,7 @@
   },
   "homepage": "https://github.com/memizy/plugin-sdk#readme",
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
   }
 }

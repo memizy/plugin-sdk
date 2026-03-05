@@ -3,7 +3,7 @@
 # 🛠️ Memizy Plugin API & SDK
 **Build interactive study modules for the OQSE ecosystem.**
 
-![Version](https://img.shields.io/badge/npm-v0.2.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/npm-v0.3.0-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
 
 </div>
