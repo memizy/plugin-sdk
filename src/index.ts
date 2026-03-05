@@ -2,7 +2,10 @@
  * memizy-plugin-sdk
  *
  * Official TypeScript SDK for building Memizy plugins.
- * Abstracts the window.postMessage protocol described in plugin-api-v1.md.
+ * Implements the State-Sync, CRUD & Asset Bridge architecture.
+ * Handles the Leitner spaced-repetition algorithm internally and acts as
+ * a bridge to the host's OPFS (Origin Private File System) to bypass
+ * iframe CORS limitations.
  *
  * @version 0.2.0
  * @license MIT
@@ -20,9 +23,27 @@ export interface OQSEItem {
 }
 
 /**
+ * Study-set metadata block.
+ * Used by `updateMeta()` to write changes back to the host via `MUTATE_META`.
+ */
+export interface OQSEMeta {
+  /** UUID of the study set. */
+  id?: string;
+  /** Display title. */
+  title?: string;
+  /** Short description shown in the library. */
+  description?: string;
+  /** Searchable tags. */
+  tags?: string[];
+  /** Set-level shared assets keyed by logical name. */
+  assets?: Record<string, MediaObject>;
+  /** Any additional OQSE meta fields. */
+  [key: string]: unknown;
+}
+
+/**
  * Standardized OQSE media object. Represents an image, audio, video, or 3D
- * model asset referenced from Rich Content fields via `<asset:key />` tags
- * or from custom item properties like `targetAsset`.
+ * model asset referenced from Rich Content fields or custom item properties.
  *
  * In standalone mode the SDK resolves relative `value` paths to absolute URLs
  * before delivering the payload to the plugin.
@@ -79,72 +100,54 @@ export interface InitSessionPayload {
   /**
    * Per-item learning progress from an OQSEP file, keyed by item UUID.
    * Present only when progress data was loaded (standalone mode) or supplied
-   * by the host. Plugins MAY use this to resume spaced-repetition sessions.
+   * by the host. The SDK internalises this on `INIT_SESSION` and keeps it
+   * up-to-date as answers are recorded.
    */
   progress?: Record<string, ProgressRecord>;
-}
-
-export type AbortReason = 'user_exit' | 'timeout' | 'host_error';
-
-export interface HintResponsePayload {
-  itemId: string;
-  granted: boolean;
-  hintText: string | null;
-  fuelCost: number;
-  remainingFuel: number;
-}
-
-export type SkipReason = 'user_skipped' | 'timeout' | 'not_supported';
-
-export type Confidence = 1 | 2 | 3;
-
-export interface AnswerOptions {
-  /** Raw string answer (what the user typed/selected). */
-  answer?: string;
-  /** User self-reported confidence (1 = unsure, 2 = okay, 3 = confident). */
-  confidence?: Confidence;
-  /**
-   * Time spent in milliseconds. If omitted and `startItemTimer(itemId)` was
-   * called, the elapsed time is inferred automatically.
-   */
-  timeSpent?: number;
-}
-
-export interface CompletionOptions {
-  /** Plugin's own internal score (0–100). Host calculates its own in parallel. */
-  score?: number | null;
 }
 
 // ---------------------------------------------------------------------------
 // OQSEP types (Open Quiz & Study Exchange — Progress, §2.5)
 // ---------------------------------------------------------------------------
 
+/**
+ * Confidence rating as defined by OQSEP (4-point forced scale).
+ * 1 = Complete Blackout, 2 = Familiar but Forgotten,
+ * 3 = Correct with Effort, 4 = Effortless Recall.
+ */
+export type Confidence = 1 | 2 | 3 | 4;
+
+/** Leitner knowledge-level bucket (0 = new/reset → 4 = mastered). */
+export type Bucket = 0 | 1 | 2 | 3 | 4;
+
 /** Aggregate outcome statistics across all past attempts for an item. */
 export interface ProgressStats {
   /** Total number of times this item has been answered. MUST be >= 0. */
   attempts: number;
-  /** Total count of incorrect answers across all attempts. MUST be >= 0 and <= `attempts`. */
+  /** Total count of incorrect answers. MUST be >= 0 and <= `attempts`. */
   incorrect: number;
-  /** Current consecutive correct-answer streak (reset to 0 on any incorrect). MUST be >= 0. */
+  /** Current consecutive correct-answer streak (reset to 0 on any incorrect). */
   streak: number;
 }
 
-/** Details of the most recent answer session for an item. */
+/** Details of the most recent interaction with an item. */
 export interface ProgressLastAnswer {
   /** Whether the most recent answer was correct. */
   isCorrect: boolean;
-  /**
-   * User's self-assessed confidence rating (OQSEP 4-point forced scale).
-   * 1 = Complete Blackout, 2 = Familiar but Forgotten,
-   * 3 = Correct with Effort, 4 = Effortless Recall.
-   */
-  confidence?: 1 | 2 | 3 | 4;
   /** ISO 8601 timestamp of when the answer was submitted. */
   answeredAt: string;
+  /** User's self-assessed confidence rating (optional). */
+  confidence?: Confidence;
+  /** Time spent on this item in milliseconds (optional). */
+  timeSpent?: number;
+  /** Number of hints used before answering (optional, default 0). */
+  hintsUsed?: number;
+  /** If `true`, the user skipped the item without answering. */
+  isSkipped?: boolean;
 }
 
 /**
- * Per-item learning progress record from an OQSEP file.
+ * Per-item learning progress record (OQSEP §2.5).
  * Uses a Leitner-inspired 0–4 bucket scale.
  */
 export interface ProgressRecord {
@@ -152,12 +155,12 @@ export interface ProgressRecord {
    * Current knowledge level.
    * 0 = new/reset, 1 = learning, 2 = familiar, 3 = consolidated, 4 = mastered.
    */
-  bucket: 0 | 1 | 2 | 3 | 4;
+  bucket: Bucket;
   /** ISO 8601 timestamp for the next scheduled review. */
   nextReviewAt?: string;
   /** Aggregate outcome statistics across all past attempts. */
   stats: ProgressStats;
-  /** Details of the most recent answer. */
+  /** Details of the most recent interaction. */
   lastAnswer?: ProgressLastAnswer;
   /**
    * Namespaced algorithm-specific data. Top-level keys MUST be application
@@ -194,6 +197,29 @@ export interface OQSEPDocument {
 }
 
 // ---------------------------------------------------------------------------
+// Answer / completion options
+// ---------------------------------------------------------------------------
+
+export interface AnswerOptions {
+  /** Raw string answer (what the user typed/selected). */
+  answer?: string;
+  /** User self-reported confidence (OQSEP 4-point scale). */
+  confidence?: Confidence;
+  /**
+   * Time spent in milliseconds. If omitted and `startItemTimer(itemId)` was
+   * called, the elapsed time is inferred automatically.
+   */
+  timeSpent?: number;
+  /** Number of hints the user used before submitting this answer (default: 0). */
+  hintsUsed?: number;
+}
+
+export interface ExitOptions {
+  /** Plugin's own internal score (0–100). Host calculates its own in parallel. */
+  score?: number | null;
+}
+
+// ---------------------------------------------------------------------------
 // Plugin options
 // ---------------------------------------------------------------------------
 
@@ -214,21 +240,23 @@ export interface MemizyPluginOptions {
   standaloneTimeout?: number;
   /**
    * When `true`, the SDK logs lifecycle events (standalone detection, OQSE
-   * fetch, payload summary, asset resolution) to the browser console.
-   * Useful during development; leave disabled in production.
+   * fetch, payload summary, asset resolution, Leitner transitions) to the
+   * browser console. Leave disabled in production.
    * Defaults to `false`.
    */
   debug?: boolean;
   /**
-   * Show a floating settings button in standalone mode that lets the user
-   * load a study set or progress file at any time. The button is only shown
-   * when the plugin runs outside a host iframe.
+   * Show a floating ⚙ settings button in standalone mode. The button is only
+   * shown when the plugin runs outside a host iframe.
    * Defaults to `true`. Set to `false` to suppress the built-in UI entirely.
    */
   showStandaloneControls?: boolean;
 }
 
-// Internal message envelope
+// ---------------------------------------------------------------------------
+// Internal message envelopes
+// ---------------------------------------------------------------------------
+
 interface HostMessage<T extends string, P = undefined> {
   type: T;
   payload?: P;
@@ -236,13 +264,12 @@ interface HostMessage<T extends string, P = undefined> {
 
 type IncomingMessage =
   | HostMessage<'INIT_SESSION', InitSessionPayload>
-  | HostMessage<'SESSION_RESUMED'>
-  | HostMessage<'SESSION_ABORTED', { reason: AbortReason }>
   | HostMessage<'CONFIG_UPDATE', Partial<Pick<SessionSettings, 'theme' | 'locale'>>>
-  | HostMessage<'HINT_RESPONSE', HintResponsePayload>;
+  | HostMessage<'ASSET_STORED', { requestId: string; mediaObject?: MediaObject; error?: string }>
+  | HostMessage<'RAW_ASSET_PROVIDED', { requestId: string; file?: File; error?: string }>;
 
 // ---------------------------------------------------------------------------
-// Shadow DOM standalone UI styles — matches Memizy brand (orange primary)
+// Shadow DOM standalone UI — matches Memizy brand (orange primary)
 // ---------------------------------------------------------------------------
 
 const STANDALONE_UI_CSS = `
@@ -518,26 +545,42 @@ code {
 `;
 
 // ---------------------------------------------------------------------------
+// Leitner interval table (days per bucket after a correct answer)
+// ---------------------------------------------------------------------------
+
+const LEITNER_INTERVALS_DAYS: Record<Bucket, number> = {
+  0: 0,  // "new" — shouldn't normally be set as a target
+  1: 1,
+  2: 3,
+  3: 7,
+  4: 30,
+};
+
+// ---------------------------------------------------------------------------
 // MemizyPlugin
 // ---------------------------------------------------------------------------
 
 /**
  * Main SDK class. Instantiate once per plugin page load.
  *
- * **Standalone mode** is handled automatically:
- * - If the plugin is embedded in a Memizy host (iframe), it waits for the
- *   `INIT_SESSION` postMessage as usual.
- * - If it runs directly in a browser window (`window.self === window.top`),
- *   the SDK checks for a `?set=<url>` query parameter and fetches the OQSE
- *   study set automatically, or shows a built-in settings dialog via a
- *   floating gear icon.
+ * **Architecture: State-Sync, CRUD & Asset Bridge**
  *
- * The developer's `onInit` callback is called identically in all cases.
+ * - Maintains an internal `progressRecords` store updated by every `answer()` /
+ *   `skip()` call via the built-in Leitner reducer.
+ * - Sends `SYNC_PROGRESS` to the host after every state mutation so the host's
+ *   OPFS copy stays in sync.
+ * - Exposes CRUD helpers (`saveItems`, `deleteItems`, `updateMeta`) that map to
+ *   typed postMessage calls handled by the host.
+ * - Exposes `uploadAsset` / `getRawAsset` as Promise-based wrappers around the
+ *   `STORE_ASSET` / `REQUEST_RAW_ASSET` bridge, letting plugins read/write OPFS
+ *   assets through the host despite iframe CORS restrictions.
+ *
+ * **Standalone mode** is handled automatically via a floating ⚙ gear button.
  *
  * @example
  * ```typescript
  * const plugin = new MemizyPlugin({ id: 'https://my-domain.com/my-quiz', version: '1.0.0' });
- * plugin.onInit(({ items, assets, progress }) => render(items));
+ * plugin.onInit(({ items, assets, progress }) => render(items, progress));
  * ```
  */
 export class MemizyPlugin {
@@ -549,10 +592,7 @@ export class MemizyPlugin {
 
   // Registered callbacks
   private initHandler: ((payload: InitSessionPayload) => void) | null = null;
-  private resumedHandler: (() => void) | null = null;
-  private abortedHandler: ((reason: AbortReason) => void) | null = null;
   private configUpdateHandler: ((config: Partial<Pick<SessionSettings, 'theme' | 'locale'>>) => void) | null = null;
-  private hintHandler: ((response: HintResponsePayload) => void) | null = null;
 
   // Item timers: itemId → start timestamp (ms)
   private readonly itemTimers = new Map<string, number>();
@@ -560,24 +600,32 @@ export class MemizyPlugin {
   // Session-level stopwatch
   private sessionStartTime: number = Date.now();
 
+  // Internal progress state — the source of truth for SYNC_PROGRESS
+  private progressRecords: Record<string, ProgressRecord> = {};
+
   // Mock data for standalone / dev mode
   private mockItems: OQSEItem[] | null = null;
   private mockSettings: Partial<SessionSettings> | null = null;
   private mockAssets: Record<string, MediaObject> | null = null;
   private standaloneTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Progress data loaded in standalone mode
+  // Progress data loaded in standalone mode (before a session starts)
   private standaloneProgress: Record<string, ProgressRecord> | null = null;
 
   // Whether INIT_SESSION (or standalone equivalent) has been received
   private initialized = false;
 
-  // Shadow DOM host element for the built-in standalone UI (gear + dialog)
+  // Shadow DOM host element (gear + dialog)
   private standaloneUiHost: HTMLElement | null = null;
-  // Reference to the overlay inside the Shadow DOM (for show/hide)
   private standaloneOverlay: HTMLElement | null = null;
 
-  // Listener ref so it can be removed later
+  // Asset bridge: pending promise resolvers keyed by requestId
+  private readonly pendingAssetRequests = new Map<
+    string,
+    { resolve: (value: unknown) => void; reject: (reason: unknown) => void }
+  >();
+
+  // Message listener reference for clean removal
   private readonly messageListener: (event: MessageEvent) => void;
 
   constructor(options: MemizyPluginOptions) {
@@ -590,18 +638,9 @@ export class MemizyPlugin {
     this.messageListener = this.handleMessage.bind(this);
     window.addEventListener('message', this.messageListener);
 
-    // Send PLUGIN_READY immediately — the host will send INIT_SESSION once it
-    // sees this signal, preventing the race condition where INIT_SESSION arrives
-    // before the plugin's listener is registered.
-    this.send('PLUGIN_READY', {
-      id: this.id,
-      version: this.version,
-    });
+    this.send('PLUGIN_READY', { id: this.id, version: this.version });
+    this.log(`SDK v0.3.0 loaded — id=${this.id}, standalone=${window.self === window.top}`);
 
-    this.log(`SDK v0.2.0 loaded — id=${this.id}, standalone=${window.self === window.top}`);
-
-    // Kick off standalone-mode detection after the current synchronous call
-    // stack completes (so onInit has already been registered via chaining).
     queueMicrotask(() => this.maybeInitStandaloneMode());
   }
 
@@ -614,79 +653,147 @@ export class MemizyPlugin {
     window.parent.postMessage(message, '*');
   }
 
-  /** Logs a message to the console when `debug: true` is set. */
   private log(...args: unknown[]): void {
     if (this.debugMode) console.log('[memizy-plugin-sdk]', ...args);
   }
 
   private handleMessage(event: MessageEvent): void {
-    // Only accept messages from the parent frame. In cross-origin iframes,
-    // event.source is the parent Window reference — compare to window.parent.
     if (event.source !== window.parent) return;
-
     const msg = event.data as IncomingMessage;
     if (!msg || typeof msg.type !== 'string') return;
 
     switch (msg.type) {
       case 'INIT_SESSION': {
+        const payload = msg.payload as InitSessionPayload;
         this.initialized = true;
         this.removeStandaloneUi();
         if (this.standaloneTimer !== null) {
           clearTimeout(this.standaloneTimer);
           this.standaloneTimer = null;
         }
+        // Internalise incoming progress so subsequent answer() calls can update it
+        if (payload.progress) {
+          this.progressRecords = { ...payload.progress };
+        }
         this.sessionStartTime = Date.now();
-        this.log('INIT_SESSION received from host');
-        this.initHandler?.(msg.payload as InitSessionPayload);
+        this.log('INIT_SESSION received from host, items:', payload.items.length);
+        this.initHandler?.(payload);
         break;
       }
-      case 'SESSION_RESUMED': {
-        this.log('SESSION_RESUMED');
-        this.resumedHandler?.();
-        break;
-      }
-      case 'SESSION_ABORTED': {
-        const reason = (msg.payload as { reason: AbortReason } | undefined)?.reason ?? 'user_exit';
-        this.log('SESSION_ABORTED reason:', reason);
-        this.abortedHandler?.(reason);
-        this.destroy();
-        break;
-      }
+
       case 'CONFIG_UPDATE': {
         this.configUpdateHandler?.(
           msg.payload as Partial<Pick<SessionSettings, 'theme' | 'locale'>>
         );
         break;
       }
-      case 'HINT_RESPONSE': {
-        this.hintHandler?.(msg.payload as HintResponsePayload);
+
+      case 'ASSET_STORED': {
+        const { requestId, mediaObject, error } =
+          msg.payload as { requestId: string; mediaObject?: MediaObject; error?: string };
+        const pending = this.pendingAssetRequests.get(requestId);
+        if (pending) {
+          this.pendingAssetRequests.delete(requestId);
+          if (error || !mediaObject) {
+            pending.reject(new Error(error ?? 'ASSET_STORED: no mediaObject returned'));
+          } else {
+            pending.resolve(mediaObject);
+          }
+        }
         break;
       }
+
+      case 'RAW_ASSET_PROVIDED': {
+        const { requestId, file, error } =
+          msg.payload as { requestId: string; file?: File; error?: string };
+        const pending = this.pendingAssetRequests.get(requestId);
+        if (pending) {
+          this.pendingAssetRequests.delete(requestId);
+          if (error || !file) {
+            pending.reject(new Error(error ?? 'RAW_ASSET_PROVIDED: no file returned'));
+          } else {
+            pending.resolve(file);
+          }
+        }
+        break;
+      }
+
       default:
-        // Unknown message types are silently ignored (forward compatibility).
         break;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Private: Leitner reducer
+  // -------------------------------------------------------------------------
+
+  /**
+   * Computes a new `ProgressRecord` by applying the Leitner algorithm to the
+   * existing record (or a fresh baseline if none exists yet).
+   *
+   * Rules:
+   * - **Correct:** `bucket` advances by 1 (max 4). Streak increments.
+   * - **Incorrect:** `bucket` resets to 1 (regardless of current level). Streak resets to 0.
+   * - `nextReviewAt` is set to `now + LEITNER_INTERVALS_DAYS[newBucket]`.
+   */
+  private defaultLeitnerReducer(
+    itemId: string,
+    isCorrect: boolean,
+    options: AnswerOptions,
+    timeSpent: number,
+  ): ProgressRecord {
+    const existing: ProgressRecord = this.progressRecords[itemId] ?? {
+      bucket: 0,
+      stats: { attempts: 0, incorrect: 0, streak: 0 },
+    };
+
+    const oldBucket = existing.bucket;
+    const newBucket: Bucket = isCorrect
+      ? (Math.min(oldBucket + 1, 4) as Bucket)
+      : 1;
+
+    const intervalDays = LEITNER_INTERVALS_DAYS[newBucket];
+    const nextReviewAt = new Date(Date.now() + intervalDays * 86_400_000).toISOString();
+
+    const newStats: ProgressStats = {
+      attempts: existing.stats.attempts + 1,
+      incorrect: existing.stats.incorrect + (isCorrect ? 0 : 1),
+      streak: isCorrect ? existing.stats.streak + 1 : 0,
+    };
+
+    const lastAnswer: ProgressLastAnswer = {
+      isCorrect,
+      answeredAt: new Date().toISOString(),
+      timeSpent,
+      confidence: options.confidence,
+      hintsUsed: options.hintsUsed ?? 0,
+    };
+
+    this.log(
+      `Leitner [${itemId}]: bucket ${oldBucket} → ${newBucket},`,
+      `correct=${isCorrect}, streak=${newStats.streak}, nextReview=${nextReviewAt}`,
+    );
+
+    return {
+      ...existing,
+      bucket: newBucket,
+      nextReviewAt,
+      stats: newStats,
+      lastAnswer,
+    };
   }
 
   // -------------------------------------------------------------------------
   // Private: standalone mode
   // -------------------------------------------------------------------------
 
-  /**
-   * Runs after the constructor's synchronous stack. Activates standalone mode
-   * only when not inside a host iframe and not already initialized (e.g. via
-   * triggerMock()).
-   */
   private maybeInitStandaloneMode(): void {
-    // Already initialized (host sent INIT_SESSION, or triggerMock was called)
     if (this.initialized) return;
-    // Running inside a host iframe — do nothing, wait for postMessage
     if (window.self !== window.top) return;
 
     const params = new URLSearchParams(window.location.search);
     const setUrl = params.get('set');
 
-    // Inject standalone controls (gear button + dialog) if enabled
     if (this.showStandaloneControls) {
       const autoOpen = !setUrl && !this.mockItems;
       this.injectStandaloneUi(autoOpen);
@@ -697,20 +804,13 @@ export class MemizyPlugin {
       void this.fetchOqseAndInit(setUrl);
     } else if (!this.mockItems) {
       this.log('Standalone: no data source, waiting for user input');
-      // Dialog is auto-opened above if showStandaloneControls is true
     }
-    // When mockItems is set, scheduleMockFallback (called from useMockData)
-    // handles the mock timer. The gear icon is available for loading real data.
   }
 
   // -------------------------------------------------------------------------
   // Private: OQSE loading / parsing
   // -------------------------------------------------------------------------
 
-  /**
-   * Fetches an OQSE study-set JSON from `url`, builds an `InitSessionPayload`,
-   * and fires the `onInit` callback.
-   */
   private async fetchOqseAndInit(
     url: string,
     onError?: (msg: string) => void,
@@ -725,18 +825,14 @@ export class MemizyPlugin {
       const rawItems = (oqse['items'] as OQSEItem[] | undefined) ?? [];
       if (!Array.isArray(rawItems)) throw new Error('OQSE file is missing an "items" array.');
 
-      // Compute the base URL used to resolve relative asset paths.
-      // Example: "https://host.com/sets/geo/data.json" → "https://host.com/sets/geo/"
       const baseUrl = url.replace(/[^/]*$/, '');
 
-      // Resolve relative paths in meta.assets (set-level shared media)
       const meta = oqse['meta'] as Record<string, unknown> | undefined;
       const metaAssets = (meta?.['assets'] ?? {}) as Record<string, Record<string, unknown>>;
       MemizyPlugin.resolveAssetValues(metaAssets, baseUrl);
 
       this.log(`Fetched OQSE: ${rawItems.length} items, meta.assets keys:`, Object.keys(metaAssets));
 
-      // Resolve relative paths in each item.assets (item-level media)
       for (const item of rawItems) {
         const itemAssets = (item['assets'] ?? {}) as Record<string, Record<string, unknown>>;
         if (typeof itemAssets === 'object' && itemAssets !== null) {
@@ -753,22 +849,12 @@ export class MemizyPlugin {
       return;
     }
 
-    // Activate session OUTSIDE the try-catch so plugin errors in onInit
-    // propagate normally instead of being silently swallowed.
     this.activateSession(payload);
   }
 
-  /**
-   * Parses an OQSE JSON string and fires `onInit`. Used for pasted text and files.
-   * Relative asset paths are NOT resolved (no base URL available).
-   */
-  private initFromOqseText(
-    jsonText: string,
-    onError?: (msg: string) => void,
-  ): void {
+  private initFromOqseText(jsonText: string, onError?: (msg: string) => void): void {
     try {
       const oqse = JSON.parse(jsonText) as Record<string, unknown>;
-
       const rawItems = (oqse['items'] as OQSEItem[] | undefined) ?? [];
       if (!Array.isArray(rawItems)) throw new Error('Missing "items" array.');
 
@@ -776,11 +862,7 @@ export class MemizyPlugin {
       const metaAssets = (meta?.['assets'] ?? {}) as Record<string, Record<string, unknown>>;
 
       this.log(`Parsed OQSE text: ${rawItems.length} items`);
-
-      const payload = this.buildStandalonePayload(
-        rawItems,
-        metaAssets as Record<string, MediaObject>,
-      );
+      const payload = this.buildStandalonePayload(rawItems, metaAssets as Record<string, MediaObject>);
       this.activateSession(payload);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -789,7 +871,6 @@ export class MemizyPlugin {
     }
   }
 
-  /** Reads a File as text and delegates to `initFromOqseText`. */
   private initFromFile(file: File, onError?: (msg: string) => void): void {
     const reader = new FileReader();
     reader.onload = () => this.initFromOqseText(reader.result as string, onError);
@@ -797,7 +878,6 @@ export class MemizyPlugin {
     reader.readAsText(file);
   }
 
-  /** Builds a standalone `InitSessionPayload` from raw items and assets. */
   private buildStandalonePayload(
     items: OQSEItem[],
     assets: Record<string, MediaObject>,
@@ -818,12 +898,14 @@ export class MemizyPlugin {
     };
   }
 
-  /** Common activation logic for standalone and mock modes. */
   private activateSession(payload: InitSessionPayload): void {
     this.initialized = true;
     if (this.standaloneTimer !== null) {
       clearTimeout(this.standaloneTimer);
       this.standaloneTimer = null;
+    }
+    if (payload.progress) {
+      this.progressRecords = { ...payload.progress };
     }
     this.hideStandaloneDialog();
     this.sessionStartTime = Date.now();
@@ -835,10 +917,9 @@ export class MemizyPlugin {
   // Private: OQSEP (progress) parsing
   // -------------------------------------------------------------------------
 
-  /**
-   * Parses OQSEP JSON text. Returns the records on success or an error string.
-   */
-  private parseOqsepText(jsonText: string): { records?: Record<string, ProgressRecord>; error?: string } {
+  private parseOqsepText(
+    jsonText: string,
+  ): { records?: Record<string, ProgressRecord>; error?: string } {
     try {
       const doc = JSON.parse(jsonText) as Record<string, unknown>;
       if (!doc['records'] || typeof doc['records'] !== 'object') {
@@ -855,7 +936,6 @@ export class MemizyPlugin {
     }
   }
 
-  /** Reads a File as text, parses as OQSEP, stores the progress. */
   private loadProgressFile(
     file: File,
     setStatus: (msg: string, type: string) => void,
@@ -869,7 +949,10 @@ export class MemizyPlugin {
       } else {
         this.standaloneProgress = result.records!;
         const count = Object.keys(result.records!).length;
-        setStatus(`\u2713 Progress loaded: ${count} record${count !== 1 ? 's' : ''} (${file.name})`, 's-ok');
+        setStatus(
+          `\u2713 Progress loaded: ${count} record${count !== 1 ? 's' : ''} (${file.name})`,
+          's-ok',
+        );
         updateIndicator();
       }
     };
@@ -881,14 +964,6 @@ export class MemizyPlugin {
   // Private: asset resolution
   // -------------------------------------------------------------------------
 
-  /**
-   * Resolves relative `MediaObject.value` paths inside an assets dictionary
-   * to absolute URLs using the given base URL.
-   *
-   * A value is considered relative if it does NOT start with a protocol
-   * scheme (e.g., `https://`, `http://`, `data:`). Paths that are already
-   * absolute are left untouched.
-   */
   private static resolveAssetValues(
     assets: Record<string, Record<string, unknown>>,
     baseUrl: string,
@@ -898,9 +973,7 @@ export class MemizyPlugin {
       if (media == null || typeof media !== 'object') continue;
       const value = media['value'];
       if (typeof value !== 'string') continue;
-      // Already absolute — skip
       if (/^[a-z][a-z0-9+\-.]*:/i.test(value)) continue;
-      // Resolve relative path against the OQSE file's base URL
       try {
         media['value'] = new URL(value, baseUrl).href;
       } catch {
@@ -910,13 +983,22 @@ export class MemizyPlugin {
   }
 
   // -------------------------------------------------------------------------
+  // Private: UUID
+  // -------------------------------------------------------------------------
+
+  private static newRequestId(): string {
+    // crypto.randomUUID() is available in all modern browsers (including Workers)
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    // Minimal fallback for environments without crypto.randomUUID
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  // -------------------------------------------------------------------------
   // Private: standalone UI
   // -------------------------------------------------------------------------
 
-  /**
-   * Injects the floating gear button and settings dialog (Shadow DOM) into the page.
-   * @param autoOpen Whether to show the dialog immediately (vs. requiring a gear click).
-   */
   private injectStandaloneUi(autoOpen: boolean): void {
     if (this.standaloneUiHost) return;
 
@@ -1003,14 +1085,16 @@ export class MemizyPlugin {
     this.standaloneUiHost = host;
     this.standaloneOverlay = overlay;
 
-    // ── Helpers ──
     const $ = (id: string) => shadow.getElementById(id);
     const statusEl = $('status-msg')!;
     const setStatus = (msg: string, cls: string) => {
       statusEl.textContent = msg;
       statusEl.className = `status-bar ${cls}`;
     };
-    const clearStatus = () => { statusEl.textContent = ''; statusEl.className = 'status-bar'; };
+    const clearStatus = () => {
+      statusEl.textContent = '';
+      statusEl.className = 'status-bar';
+    };
 
     const updateProgressIndicator = () => {
       const el = $('progress-status');
@@ -1023,14 +1107,12 @@ export class MemizyPlugin {
       }
     };
 
-    // ── Toggle dialog ──
     gearBtn.addEventListener('click', () => overlay.classList.toggle('hidden'));
     $('close-btn')!.addEventListener('click', () => overlay.classList.add('hidden'));
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) overlay.classList.add('hidden');
     });
 
-    // ── Tab switching ──
     const tabs = shadow.querySelectorAll('.tab') as NodeListOf<HTMLElement>;
     const tabBodies: Record<string, HTMLElement> = {
       set: $('tab-set')!,
@@ -1047,7 +1129,6 @@ export class MemizyPlugin {
       });
     });
 
-    // ── Study Set: URL ──
     const urlInput = $('url-input') as HTMLInputElement;
     const urlBtn = $('url-btn') as HTMLButtonElement;
     const loadFromUrl = () => {
@@ -1065,7 +1146,6 @@ export class MemizyPlugin {
     urlBtn.addEventListener('click', loadFromUrl);
     urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadFromUrl(); });
 
-    // ── Study Set: Paste JSON ──
     const setJsonArea = $('set-json') as HTMLTextAreaElement;
     $('set-json-btn')!.addEventListener('click', () => {
       const text = setJsonArea.value.trim();
@@ -1074,16 +1154,12 @@ export class MemizyPlugin {
       this.initFromOqseText(text, (msg) => setStatus('\u274c ' + msg, 's-error'));
     });
 
-    // ── Study Set: File upload ──
     const setFileInput = $('set-file') as HTMLInputElement;
     const setDrop = $('set-drop')!;
     setDrop.addEventListener('click', () => setFileInput.click());
     setFileInput.addEventListener('change', () => {
       const file = setFileInput.files?.[0];
-      if (file) {
-        clearStatus();
-        this.initFromFile(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
-      }
+      if (file) { clearStatus(); this.initFromFile(file, (msg) => setStatus('\u274c ' + msg, 's-error')); }
     });
     setDrop.addEventListener('dragover', (e) => { e.preventDefault(); setDrop.classList.add('drag-over'); });
     setDrop.addEventListener('dragleave', () => setDrop.classList.remove('drag-over'));
@@ -1091,13 +1167,9 @@ export class MemizyPlugin {
       e.preventDefault();
       setDrop.classList.remove('drag-over');
       const file = (e as DragEvent).dataTransfer?.files[0];
-      if (file) {
-        clearStatus();
-        this.initFromFile(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
-      }
+      if (file) { clearStatus(); this.initFromFile(file, (msg) => setStatus('\u274c ' + msg, 's-error')); }
     });
 
-    // ── Progress: Paste JSON ──
     const progressJsonArea = $('progress-json') as HTMLTextAreaElement;
     $('progress-json-btn')!.addEventListener('click', () => {
       const text = progressJsonArea.value.trim();
@@ -1113,7 +1185,6 @@ export class MemizyPlugin {
       }
     });
 
-    // ── Progress: File upload ──
     const progressFileInput = $('progress-file') as HTMLInputElement;
     const progressDrop = $('progress-drop')!;
     progressDrop.addEventListener('click', () => progressFileInput.click());
@@ -1130,16 +1201,13 @@ export class MemizyPlugin {
       if (file) this.loadProgressFile(file, setStatus, updateProgressIndicator);
     });
 
-    // Auto-focus URL input when dialog is open
     if (autoOpen) requestAnimationFrame(() => urlInput.focus());
   }
 
-  /** Hides the dialog overlay but keeps the gear button visible. */
   private hideStandaloneDialog(): void {
     this.standaloneOverlay?.classList.add('hidden');
   }
 
-  /** Removes the entire standalone UI element (gear + dialog) from the page. */
   private removeStandaloneUi(): void {
     this.standaloneUiHost?.remove();
     this.standaloneUiHost = null;
@@ -1150,9 +1218,8 @@ export class MemizyPlugin {
   // Private: mock helpers
   // -------------------------------------------------------------------------
 
-  /** Builds a default InitSessionPayload from mock data. */
   private buildMockPayload(): InitSessionPayload {
-    const defaultSettings: SessionSettings = {
+    const defaults: SessionSettings = {
       shuffle: false,
       masteryMode: false,
       maxItems: null,
@@ -1165,32 +1232,29 @@ export class MemizyPlugin {
       sessionId: `mock-${Date.now()}`,
       items: this.mockItems ?? [],
       assets: this.mockAssets ?? {},
-      settings: defaultSettings,
+      settings: defaults,
       progress: this.standaloneProgress ?? undefined,
     };
   }
 
-  /** Schedules the standalone fallback timer once mock data is available. */
   private scheduleMockFallback(): void {
     if (this.initialized || this.mockItems === null) return;
-    if (this.standaloneTimer !== null) return; // already scheduled
+    if (this.standaloneTimer !== null) return;
 
     this.log(`Mock fallback scheduled (${this.standaloneTimeout}ms)`);
     this.standaloneTimer = setTimeout(() => {
-      if (!this.initialized) {
-        this.triggerMock();
-      }
+      if (!this.initialized) this.triggerMock();
     }, this.standaloneTimeout);
   }
 
   // -------------------------------------------------------------------------
-  // Host → Plugin callback registration
+  // Callback registration
   // -------------------------------------------------------------------------
 
   /**
-   * Register a callback for when the Host sends `INIT_SESSION`.
-   * This is the main entry point for plugin startup logic.
-   * In standalone mode the SDK fires this callback automatically.
+   * Register a callback for `INIT_SESSION`.
+   * This is the main entry point for plugin startup logic. In standalone mode
+   * the SDK fires this callback automatically.
    */
   onInit(handler: (payload: InitSessionPayload) => void): this {
     this.initHandler = handler;
@@ -1198,93 +1262,203 @@ export class MemizyPlugin {
   }
 
   /**
-   * Register a callback for when the Host sends `SESSION_RESUMED`.
-   * Restart timers, animations, or game loops here.
-   */
-  onResumed(handler: () => void): this {
-    this.resumedHandler = handler;
-    return this;
-  }
-
-  /**
-   * Register a callback for when the Host sends `SESSION_ABORTED`.
-   * Stop timers and release resources. Do NOT send further messages.
-   */
-  onAborted(handler: (reason: AbortReason) => void): this {
-    this.abortedHandler = handler;
-    return this;
-  }
-
-  /**
-   * Register a callback for when the Host sends `CONFIG_UPDATE`
+   * Register a callback for `CONFIG_UPDATE`
    * (e.g., the user changed the theme or locale mid-session).
    */
-  onConfigUpdate(handler: (config: Partial<Pick<SessionSettings, 'theme' | 'locale'>>) => void): this {
+  onConfigUpdate(
+    handler: (config: Partial<Pick<SessionSettings, 'theme' | 'locale'>>) => void,
+  ): this {
     this.configUpdateHandler = handler;
     return this;
   }
 
-  /**
-   * Register a callback for the Host's response to a `REQUEST_HINT` message.
-   * Check `response.granted` before showing the hint text.
-   */
-  onHint(handler: (response: HintResponsePayload) => void): this {
-    this.hintHandler = handler;
-    return this;
-  }
-
   // -------------------------------------------------------------------------
-  // Plugin → Host actions
+  // State-Sync: answer & skip
   // -------------------------------------------------------------------------
 
   /**
-   * Report that the user answered an item.
+   * Record an answer for an item.
    *
-   * If `startItemTimer(itemId)` was called earlier, `timeSpent` is inferred
-   * automatically. If neither a timer nor `options.timeSpent` is provided,
-   * `timeSpent` defaults to `0`.
+   * 1. Stops the item timer (or uses `options.timeSpent`).
+   * 2. Runs the Leitner reducer to compute the new `ProgressRecord`.
+   * 3. Saves it to the internal state store.
+   * 4. Immediately sends `SYNC_PROGRESS` with the updated record.
+   *
+   * @returns `this` for chaining.
    */
   answer(itemId: string, isCorrect: boolean, options: AnswerOptions = {}): this {
     let timeSpent = options.timeSpent;
-
     if (timeSpent === undefined) {
-      if (this.itemTimers.has(itemId)) {
-        timeSpent = this.stopItemTimer(itemId);
-      } else {
-        timeSpent = 0;
-      }
+      timeSpent = this.itemTimers.has(itemId) ? this.stopItemTimer(itemId) : 0;
     } else if (this.itemTimers.has(itemId)) {
-      // Explicit timeSpent given — still clean up the timer
       this.clearItemTimer(itemId);
     }
 
-    this.send('ITEM_ANSWERED', {
-      itemId,
-      isCorrect,
-      timeSpent,
-      answer: options.answer ?? null,
-      confidence: options.confidence ?? null,
+    const record = this.defaultLeitnerReducer(itemId, isCorrect, options, timeSpent);
+    this.progressRecords[itemId] = record;
+    this.send('SYNC_PROGRESS', { [itemId]: record } as Record<string, ProgressRecord>);
+    return this;
+  }
+
+  /**
+   * Record that the user skipped an item without answering.
+   *
+   * The bucket and stats are NOT modified. Only `lastAnswer` is updated
+   * (with `isSkipped: true` and the elapsed `timeSpent`).
+   * Sends `SYNC_PROGRESS` with the updated record.
+   */
+  skip(itemId: string): this {
+    const timeSpent = this.itemTimers.has(itemId) ? this.stopItemTimer(itemId) : 0;
+
+    const existing: ProgressRecord = this.progressRecords[itemId] ?? {
+      bucket: 0,
+      stats: { attempts: 0, incorrect: 0, streak: 0 },
+    };
+
+    const record: ProgressRecord = {
+      ...existing,
+      lastAnswer: {
+        isCorrect: false,
+        answeredAt: new Date().toISOString(),
+        timeSpent,
+        isSkipped: true,
+      },
+    };
+
+    this.progressRecords[itemId] = record;
+    this.send('SYNC_PROGRESS', { [itemId]: record } as Record<string, ProgressRecord>);
+    this.log(`Skipped [${itemId}], timeSpent=${timeSpent}ms`);
+    return this;
+  }
+
+  /**
+   * Bulk-merge external progress records into the internal state and send
+   * `SYNC_PROGRESS` to the host.
+   *
+   * Useful for restoring saved progress after a page refresh, or for
+   * synchronising records received from a remote source.
+   *
+   * @param records  Map of itemId → ProgressRecord to merge.
+   */
+  syncProgress(records: Record<string, ProgressRecord>): this {
+    Object.assign(this.progressRecords, records);
+    this.send('SYNC_PROGRESS', records);
+    this.log(`syncProgress: ${Object.keys(records).length} records pushed`);
+    return this;
+  }
+
+  /**
+   * Returns a snapshot of the current internal progress state.
+   * Keyed by item UUID.
+   */
+  getProgress(): Record<string, ProgressRecord> {
+    return { ...this.progressRecords };
+  }
+
+  // -------------------------------------------------------------------------
+  // CRUD: Set Mutation
+  // -------------------------------------------------------------------------
+
+  /**
+   * Persist new or updated items to the host's OPFS copy of the study set.
+   * The host merges the supplied items by `id`.
+   */
+  saveItems(items: OQSEItem[]): this {
+    this.send('MUTATE_ITEMS', { items });
+    this.log(`saveItems: ${items.length} item(s)`);
+    return this;
+  }
+
+  /**
+   * Delete items from the host's OPFS copy of the study set by their UUIDs.
+   */
+  deleteItems(itemIds: string[]): this {
+    this.send('DELETE_ITEMS', { itemIds });
+    this.log(`deleteItems: ${itemIds.length} id(s)`);
+    return this;
+  }
+
+  /**
+   * Update the study set's metadata (title, description, tags, etc.) in OPFS.
+   * Only the supplied fields are overwritten; others remain unchanged.
+   */
+  updateMeta(meta: Partial<OQSEMeta>): this {
+    this.send('MUTATE_META', { meta });
+    this.log('updateMeta:', Object.keys(meta).join(', '));
+    return this;
+  }
+
+  // -------------------------------------------------------------------------
+  // Asset Bridge (OPFS via Host)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Upload a `File` or `Blob` asset through the host into OPFS.
+   *
+   * The host stores the asset, creates a `MediaObject` entry in the set's
+   * asset registry, and responds with `ASSET_STORED`. The returned
+   * `MediaObject` can be saved to an item via `saveItems()`.
+   *
+   * @param file          The file or blob to store.
+   * @param suggestedKey  Suggested logical key, e.g., `"hero-image"`. The host
+   *                      may alter it to guarantee uniqueness.
+   * @returns A `Promise<MediaObject>` with the stored asset descriptor.
+   *
+   * @example
+   * ```typescript
+   * const media = await plugin.uploadAsset(file, 'skull-model');
+   * await plugin.saveItems([{ ...item, assets: { model: media } }]);
+   * ```
+   */
+  uploadAsset(file: File | Blob, suggestedKey?: string): Promise<MediaObject> {
+    const requestId = MemizyPlugin.newRequestId();
+    const key = suggestedKey ?? (file instanceof File ? file.name : `asset-${requestId}`);
+
+    return new Promise<MediaObject>((resolve, reject) => {
+      this.pendingAssetRequests.set(requestId, {
+        resolve: resolve as (v: unknown) => void,
+        reject,
+      });
+      this.send('STORE_ASSET', { requestId, file, suggestedKey: key });
+      this.log(`uploadAsset requestId=${requestId}, key=${key}`);
     });
-
-    return this;
   }
 
   /**
-   * Report that the user skipped an item without answering.
-   * @param reason  Defaults to `'user_skipped'`.
+   * Request the raw `File` for an asset stored in the host's OPFS.
+   *
+   * Useful when a plugin needs the original binary (e.g., to display a
+   * local 3D model preview) without going through a public URL, bypassing
+   * iframe CORS restrictions via the host bridge.
+   *
+   * @param key  The logical asset key (e.g., `"skull-model"`).
+   * @returns A `Promise<File>` with the raw asset data.
    */
-  skip(itemId: string, reason: SkipReason = 'user_skipped'): this {
-    this.clearItemTimer(itemId);
-    this.send('ITEM_SKIPPED', { itemId, reason });
-    return this;
+  getRawAsset(key: string): Promise<File> {
+    const requestId = MemizyPlugin.newRequestId();
+
+    return new Promise<File>((resolve, reject) => {
+      this.pendingAssetRequests.set(requestId, {
+        resolve: resolve as (v: unknown) => void,
+        reject,
+      });
+      this.send('REQUEST_RAW_ASSET', { requestId, key });
+      this.log(`getRawAsset requestId=${requestId}, key=${key}`);
+    });
   }
 
+  // -------------------------------------------------------------------------
+  // Lifecycle
+  // -------------------------------------------------------------------------
+
   /**
-   * Signal that the session is over. The Host will display the summary screen.
-   * Pass `score` (0–100) if the plugin tracks its own internal score.
+   * Signal to the host that the session is over (replaces the old
+   * `SESSION_COMPLETED` message).
+   *
+   * @param options  Optional exit metadata (e.g., plugin internal `score`).
    */
-  complete(options: CompletionOptions = {}): this {
-    this.send('SESSION_COMPLETED', {
+  exit(options: ExitOptions = {}): this {
+    this.send('EXIT_REQUEST', {
       score: options.score ?? null,
       totalTimeSpent: Date.now() - this.sessionStartTime,
     });
@@ -1292,40 +1466,8 @@ export class MemizyPlugin {
   }
 
   /**
-   * Signal that the user paused the session from within the plugin
-   * (e.g., via an in-game pause menu). The Host may overlay a pause UI.
-   */
-  pause(): this {
-    this.send('SESSION_PAUSED');
-    return this;
-  }
-
-  /**
-   * Push a progress update to the Host HUD.
-   * Call this after every `answer()` or `skip()` call for a live progress bar.
-   *
-   * @param done   Number of items that have been answered or skipped so far.
-   * @param total  Total number of items in the session.
-   */
-  updateProgress(done: number, total: number): this {
-    const percentComplete = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-    this.send('PROGRESS_UPDATE', { itemsDone: done, itemsTotal: total, percentComplete });
-    return this;
-  }
-
-  /**
-   * Ask the Host to unlock a hint for the given item.
-   * The Host will respond via the `onHint()` callback.
-   * The Host may deduct Fuel as a cost.
-   */
-  requestHint(itemId: string): this {
-    this.send('REQUEST_HINT', { itemId });
-    return this;
-  }
-
-  /**
-   * Request that the Host resize the iframe container.
-   * The Host MAY ignore this if it controls layout exclusively.
+   * Request that the host resize the iframe container.
+   * The host MAY ignore this if it controls layout exclusively.
    *
    * @param height  Desired height in pixels, or `'auto'`.
    * @param width   Desired width in pixels, `'auto'`, or `null` (no change).
@@ -1336,7 +1478,7 @@ export class MemizyPlugin {
   }
 
   /**
-   * Log a non-fatal error to the Host for telemetry/debugging.
+   * Log a non-fatal error to the host for telemetry/debugging.
    * The plugin MUST continue running after calling this.
    *
    * @param code     Short camelCase error identifier, e.g., `'UNSUPPORTED_TYPE'`.
@@ -1345,7 +1487,7 @@ export class MemizyPlugin {
   reportError(
     code: string,
     message: string,
-    options: { itemId?: string; context?: Record<string, unknown> } = {}
+    options: { itemId?: string; context?: Record<string, unknown> } = {},
   ): this {
     this.send('PLUGIN_ERROR', {
       code,
@@ -1361,8 +1503,8 @@ export class MemizyPlugin {
   // -------------------------------------------------------------------------
 
   /**
-   * Start a per-item stopwatch. Call this when the item becomes visible to
-   * the user. The elapsed time will be automatically passed to `answer()`.
+   * Start a per-item stopwatch. Call this when the item becomes visible.
+   * The elapsed time is automatically included in `answer()` and `skip()`.
    */
   startItemTimer(itemId: string): this {
     this.itemTimers.set(itemId, Date.now());
@@ -1370,8 +1512,7 @@ export class MemizyPlugin {
   }
 
   /**
-   * Stop the timer and return the elapsed milliseconds.
-   * The timer entry is cleared after this call.
+   * Stop the timer and return elapsed milliseconds. Clears the entry.
    */
   stopItemTimer(itemId: string): number {
     const start = this.itemTimers.get(itemId);
@@ -1380,7 +1521,7 @@ export class MemizyPlugin {
   }
 
   /**
-   * Stop the timer without returning the elapsed time (e.g., on skip or abort).
+   * Stop the timer silently (e.g., on abort). Does not return elapsed time.
    */
   clearItemTimer(itemId: string): this {
     this.itemTimers.delete(itemId);
@@ -1392,15 +1533,15 @@ export class MemizyPlugin {
   // -------------------------------------------------------------------------
 
   /**
-   * Provide mock items (and optionally mock settings, assets, and progress)
-   * to be used when the plugin is opened outside the Memizy host
-   * (no INIT_SESSION arrives within `standaloneTimeout` ms).
+   * Provide mock items (and optionally settings, assets, progress) for use
+   * when the plugin is opened outside a Memizy host.
+   * Suppresses the built-in standalone dialog.
    *
-   * Calling this will suppress the built-in standalone URL dialog.
-   *
-   * Call this before `onInit()` so the mock fires correctly:
+   * @example
    * ```typescript
-   * plugin.useMockData(mockItems, { assets, progress }).onInit(({ items }) => render(items));
+   * plugin
+   *   .useMockData(mockItems, { assets: mockAssets, progress: mockProgress })
+   *   .onInit(({ items, progress }) => render(items, progress));
    * ```
    */
   useMockData(
@@ -1415,14 +1556,13 @@ export class MemizyPlugin {
     this.mockSettings = options?.settings ?? null;
     this.mockAssets = options?.assets ?? null;
     if (options?.progress) this.standaloneProgress = options.progress;
-    // Suppress the auto standalone UI if it was already injected
     this.removeStandaloneUi();
     this.scheduleMockFallback();
     return this;
   }
 
   /**
-   * Manually fire the `onInit` callback with mock data immediately.
+   * Manually fire `onInit` with mock data immediately.
    * Useful for unit tests or Storybook-style component previews.
    */
   triggerMock(): this {
@@ -1431,21 +1571,21 @@ export class MemizyPlugin {
       return this;
     }
     this.initialized = true;
+    const payload = this.buildMockPayload();
+    if (payload.progress) this.progressRecords = { ...payload.progress };
     this.hideStandaloneDialog();
     this.sessionStartTime = Date.now();
-    this.initHandler?.(this.buildMockPayload());
+    this.initHandler?.(payload);
     return this;
   }
 
   /**
-   * Returns `true` when the plugin is running outside a Memizy host frame
-   * (i.e., `window.self === window.top`).
+   * Returns `true` when the plugin is running outside a Memizy host frame.
    */
   isStandalone(): boolean {
     try {
       return window.self === window.top;
     } catch {
-      // Cross-origin parent access throws — we are definitely in an iframe
       return false;
     }
   }
@@ -1455,10 +1595,9 @@ export class MemizyPlugin {
   // -------------------------------------------------------------------------
 
   /**
-   * Remove the message event listener, cancel pending timers, and remove the
-   * standalone UI if present.
-   * Called automatically on SESSION_ABORTED.
-   * Call manually if you need to unmount the plugin without a host signal.
+   * Remove the message listener, cancel timers, reject pending asset promises,
+   * and remove the standalone UI.
+   * Call this if you need to unmount the plugin manually.
    */
   destroy(): void {
     window.removeEventListener('message', this.messageListener);
@@ -1468,5 +1607,10 @@ export class MemizyPlugin {
       clearTimeout(this.standaloneTimer);
       this.standaloneTimer = null;
     }
+    // Reject all pending asset bridge promises
+    for (const [id, { reject }] of this.pendingAssetRequests) {
+      reject(new Error(`[memizy-plugin-sdk] Plugin destroyed while waiting for asset request ${id}`));
+    }
+    this.pendingAssetRequests.clear();
   }
 }
