@@ -4,7 +4,7 @@
  * Official TypeScript SDK for building Memizy plugins.
  * Abstracts the window.postMessage protocol described in plugin-api-v1.md.
  *
- * @version 0.1.4
+ * @version 0.2.0
  * @license MIT
  */
 
@@ -76,6 +76,12 @@ export interface InitSessionPayload {
    * URLs automatically.
    */
   assets: Record<string, MediaObject>;
+  /**
+   * Per-item learning progress from an OQSEP file, keyed by item UUID.
+   * Present only when progress data was loaded (standalone mode) or supplied
+   * by the host. Plugins MAY use this to resume spaced-repetition sessions.
+   */
+  progress?: Record<string, ProgressRecord>;
 }
 
 export type AbortReason = 'user_exit' | 'timeout' | 'host_error';
@@ -109,6 +115,88 @@ export interface CompletionOptions {
   score?: number | null;
 }
 
+// ---------------------------------------------------------------------------
+// OQSEP types (Open Quiz & Study Exchange — Progress, §2.5)
+// ---------------------------------------------------------------------------
+
+/** Aggregate outcome statistics across all past attempts for an item. */
+export interface ProgressStats {
+  /** Total number of times this item has been answered. MUST be >= 0. */
+  attempts: number;
+  /** Total count of incorrect answers across all attempts. MUST be >= 0 and <= `attempts`. */
+  incorrect: number;
+  /** Current consecutive correct-answer streak (reset to 0 on any incorrect). MUST be >= 0. */
+  streak: number;
+}
+
+/** Details of the most recent answer session for an item. */
+export interface ProgressLastAnswer {
+  /** Whether the most recent answer was correct. */
+  isCorrect: boolean;
+  /**
+   * User's self-assessed confidence rating (OQSEP 4-point forced scale).
+   * 1 = Complete Blackout, 2 = Familiar but Forgotten,
+   * 3 = Correct with Effort, 4 = Effortless Recall.
+   */
+  confidence?: 1 | 2 | 3 | 4;
+  /** ISO 8601 timestamp of when the answer was submitted. */
+  answeredAt: string;
+}
+
+/**
+ * Per-item learning progress record from an OQSEP file.
+ * Uses a Leitner-inspired 0–4 bucket scale.
+ */
+export interface ProgressRecord {
+  /**
+   * Current knowledge level.
+   * 0 = new/reset, 1 = learning, 2 = familiar, 3 = consolidated, 4 = mastered.
+   */
+  bucket: 0 | 1 | 2 | 3 | 4;
+  /** ISO 8601 timestamp for the next scheduled review. */
+  nextReviewAt?: string;
+  /** Aggregate outcome statistics across all past attempts. */
+  stats: ProgressStats;
+  /** Details of the most recent answer. */
+  lastAnswer?: ProgressLastAnswer;
+  /**
+   * Namespaced algorithm-specific data. Top-level keys MUST be application
+   * identifiers (e.g., `{ "memizy": { "fsrs": { "stability": 0.42 } } }`).
+   */
+  appSpecific?: Record<string, Record<string, unknown>>;
+}
+
+/** Metadata block of an OQSEP progress file. */
+export interface OQSEPMeta {
+  /** UUID of the OQSE study set this progress corresponds to. */
+  setId: string;
+  /** ISO 8601 timestamp of when this file was generated. */
+  exportedAt: string;
+  /**
+   * Identifier of the spaced repetition algorithm (e.g., "leitner", "sm2", "fsrs").
+   * Informational only — importers MUST NOT refuse files with a different algorithm.
+   */
+  algorithm?: string;
+}
+
+/**
+ * Root structure of an OQSEP (progress) document.
+ * Always a separate JSON file associated with a specific OQSE study set.
+ */
+export interface OQSEPDocument {
+  $schema?: string;
+  /** OQSEP format version (e.g., "0.1"). */
+  version: string;
+  /** Metadata describing the origin of this progress data. */
+  meta: OQSEPMeta;
+  /** Map of item UUIDs to their progress records. */
+  records: Record<string, ProgressRecord>;
+}
+
+// ---------------------------------------------------------------------------
+// Plugin options
+// ---------------------------------------------------------------------------
+
 export interface MemizyPluginOptions {
   /**
    * Unique identifier for the plugin. MUST match the `id` field in the plugin's
@@ -131,6 +219,13 @@ export interface MemizyPluginOptions {
    * Defaults to `false`.
    */
   debug?: boolean;
+  /**
+   * Show a floating settings button in standalone mode that lets the user
+   * load a study set or progress file at any time. The button is only shown
+   * when the plugin runs outside a host iframe.
+   * Defaults to `true`. Set to `false` to suppress the built-in UI entirely.
+   */
+  showStandaloneControls?: boolean;
 }
 
 // Internal message envelope
@@ -147,104 +242,279 @@ type IncomingMessage =
   | HostMessage<'HINT_RESPONSE', HintResponsePayload>;
 
 // ---------------------------------------------------------------------------
-// Shadow DOM standalone UI styles
+// Shadow DOM standalone UI styles — matches Memizy brand (orange primary)
 // ---------------------------------------------------------------------------
 
 const STANDALONE_UI_CSS = `
-  :host {
-    all: initial;
-    position: fixed;
-    inset: 0;
-    z-index: 2147483647;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(10, 15, 25, 0.82);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-  }
-  .card {
-    background: #1a2535;
-    border: 1px solid #2c3e50;
-    border-radius: 14px;
-    padding: 36px 40px 32px;
-    width: min(480px, calc(100vw - 48px));
-    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
-    color: #e0e8f0;
-  }
-  .logo {
-    font-size: 2.2rem;
-    margin-bottom: 10px;
-    display: block;
-    text-align: center;
-  }
-  h2 {
-    margin: 0 0 6px;
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #f1c40f;
-    text-align: center;
-  }
-  p {
-    margin: 0 0 24px;
-    font-size: 0.88rem;
-    color: #7f95b0;
-    text-align: center;
-    line-height: 1.6;
-  }
-  .row {
-    display: flex;
-    gap: 10px;
-  }
-  input {
-    flex: 1;
-    padding: 11px 14px;
-    background: #273548;
-    border: 1px solid #344658;
-    border-radius: 8px;
-    color: #e0e8f0;
-    font-size: 0.93rem;
-    outline: none;
-    min-width: 0;
-    transition: border-color 0.15s;
-  }
-  input:focus { border-color: #3498db; }
-  input::placeholder { color: #4a6070; }
-  button {
-    padding: 11px 20px;
-    background: #3498db;
-    border: none;
-    border-radius: 8px;
-    color: #fff;
-    font-size: 0.93rem;
-    font-weight: 700;
-    cursor: pointer;
-    white-space: nowrap;
-    min-width: 44px;
-    min-height: 44px;
-    transition: background 0.15s;
-  }
-  button:hover:not(:disabled) { background: #2980b9; }
-  button:disabled { opacity: 0.55; cursor: not-allowed; }
-  .error {
-    margin-top: 10px;
-    min-height: 1.3em;
-    font-size: 0.83rem;
-    color: #e74c3c;
-  }
-  .hint {
-    margin-top: 16px;
-    font-size: 0.78rem;
-    color: #4a6070;
-    text-align: center;
-  }
-  code {
-    background: #273548;
-    padding: 1px 5px;
-    border-radius: 4px;
-    font-family: monospace;
-  }
+:host {
+  all: initial;
+  display: contents;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #1f2937;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ── Gear button ── */
+.gear-btn {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  opacity: 0.5;
+  transition: opacity 0.2s, box-shadow 0.2s, transform 0.2s;
+  z-index: 2147483646;
+  color: #ff6b00;
+  padding: 0;
+  margin: 0;
+}
+.gear-btn:hover {
+  opacity: 1;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  transform: rotate(30deg);
+}
+
+/* ── Modal overlay ── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.overlay.hidden { display: none; }
+
+/* ── Card ── */
+.card {
+  background: #fff;
+  border-radius: 16px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  color: #1f2937;
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 24px 0;
+}
+.header .logo { font-size: 1.5rem; line-height: 1; }
+.header h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+.header h2 span { color: #9ca3af; font-weight: 400; }
+.close-btn {
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 1.4rem;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+.close-btn:hover { color: #1f2937; background: #f3f4f6; }
+
+/* ── Tabs ── */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 24px;
+  margin-top: 16px;
+  gap: 0;
+}
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab:hover { color: #1f2937; }
+.tab.active { color: #ff6b00; border-bottom-color: #ff6b00; font-weight: 600; }
+
+/* ── Tab body ── */
+.tab-body { padding: 20px 24px 24px; }
+.tab-body.hidden { display: none; }
+
+/* ── Section / label ── */
+.section { margin-bottom: 14px; }
+.section:last-child { margin-bottom: 0; }
+label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+/* ── Inputs ── */
+input[type="url"], input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #1f2937;
+  font: inherit;
+  font-size: 0.9rem;
+  outline: none;
+  min-width: 0;
+  transition: border-color 0.15s;
+}
+input:focus { border-color: #ff6b00; }
+input::placeholder { color: #9ca3af; }
+textarea {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #1f2937;
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.82rem;
+  outline: none;
+  resize: vertical;
+  min-height: 76px;
+  transition: border-color 0.15s;
+}
+textarea:focus { border-color: #ff6b00; }
+textarea::placeholder { color: #9ca3af; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 44px;
+  min-height: 40px;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: #ff6b00; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #e65c00; }
+.btn-secondary { background: #f3f4f6; color: #374151; }
+.btn-secondary:hover:not(:disabled) { background: #e5e7eb; }
+.btn-sm { padding: 7px 14px; font-size: 0.84rem; min-height: 34px; }
+.btn-full { width: 100%; }
+
+/* ── Row ── */
+.row { display: flex; gap: 8px; align-items: stretch; }
+.row input[type="url"] { flex: 1; }
+
+/* ── Divider ── */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+  color: #9ca3af;
+  font-size: 0.78rem;
+}
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e5e7eb;
+}
+
+/* ── Drop zone ── */
+.drop-zone {
+  border: 2px dashed #d1d5db;
+  border-radius: 10px;
+  padding: 18px;
+  text-align: center;
+  cursor: pointer;
+  color: #6b7280;
+  font-size: 0.85rem;
+  transition: border-color 0.15s, background 0.15s;
+  line-height: 1.5;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: #ff6b00;
+  background: #fff7ed;
+}
+.drop-zone .dz-icon { font-size: 1.3rem; margin-bottom: 4px; display: block; }
+
+/* ── Status ── */
+.status-bar {
+  padding: 0 24px 4px;
+  min-height: 1.3em;
+  font-size: 0.83rem;
+}
+.status-bar.s-error { color: #ef4444; }
+.status-bar.s-ok { color: #10b981; }
+.status-bar.s-info { color: #6b7280; }
+
+/* ── Hint ── */
+.hint {
+  padding: 6px 24px 18px;
+  font-size: 0.76rem;
+  color: #9ca3af;
+  text-align: center;
+}
+code {
+  background: #f3f4f6;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.82em;
+}
+
+/* ── Progress loaded indicator ── */
+.progress-ok {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  color: #166534;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 `;
 
 // ---------------------------------------------------------------------------
@@ -259,14 +529,15 @@ const STANDALONE_UI_CSS = `
  *   `INIT_SESSION` postMessage as usual.
  * - If it runs directly in a browser window (`window.self === window.top`),
  *   the SDK checks for a `?set=<url>` query parameter and fetches the OQSE
- *   study set automatically, or shows a built-in URL-input dialog.
+ *   study set automatically, or shows a built-in settings dialog via a
+ *   floating gear icon.
  *
  * The developer's `onInit` callback is called identically in all cases.
  *
  * @example
  * ```typescript
  * const plugin = new MemizyPlugin({ id: 'https://my-domain.com/my-quiz', version: '1.0.0' });
- * plugin.onInit(({ items }) => render(items));
+ * plugin.onInit(({ items, assets, progress }) => render(items));
  * ```
  */
 export class MemizyPlugin {
@@ -274,6 +545,7 @@ export class MemizyPlugin {
   private readonly version: string;
   private readonly standaloneTimeout: number;
   private readonly debugMode: boolean;
+  private readonly showStandaloneControls: boolean;
 
   // Registered callbacks
   private initHandler: ((payload: InitSessionPayload) => void) | null = null;
@@ -294,11 +566,16 @@ export class MemizyPlugin {
   private mockAssets: Record<string, MediaObject> | null = null;
   private standaloneTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Progress data loaded in standalone mode
+  private standaloneProgress: Record<string, ProgressRecord> | null = null;
+
   // Whether INIT_SESSION (or standalone equivalent) has been received
   private initialized = false;
 
-  // Shadow DOM host element for the built-in standalone UI
+  // Shadow DOM host element for the built-in standalone UI (gear + dialog)
   private standaloneUiHost: HTMLElement | null = null;
+  // Reference to the overlay inside the Shadow DOM (for show/hide)
+  private standaloneOverlay: HTMLElement | null = null;
 
   // Listener ref so it can be removed later
   private readonly messageListener: (event: MessageEvent) => void;
@@ -308,6 +585,7 @@ export class MemizyPlugin {
     this.version = options.version;
     this.standaloneTimeout = options.standaloneTimeout ?? 2000;
     this.debugMode = options.debug ?? false;
+    this.showStandaloneControls = options.showStandaloneControls ?? true;
 
     this.messageListener = this.handleMessage.bind(this);
     window.addEventListener('message', this.messageListener);
@@ -320,7 +598,7 @@ export class MemizyPlugin {
       version: this.version,
     });
 
-    this.log(`SDK v0.1.4 loaded — id=${this.id}, standalone=${window.self === window.top}`);
+    this.log(`SDK v0.2.0 loaded — id=${this.id}, standalone=${window.self === window.top}`);
 
     // Kick off standalone-mode detection after the current synchronous call
     // stack completes (so onInit has already been registered via chaining).
@@ -408,14 +686,26 @@ export class MemizyPlugin {
     const params = new URLSearchParams(window.location.search);
     const setUrl = params.get('set');
 
+    // Inject standalone controls (gear button + dialog) if enabled
+    if (this.showStandaloneControls) {
+      const autoOpen = !setUrl && !this.mockItems;
+      this.injectStandaloneUi(autoOpen);
+    }
+
     if (setUrl) {
       this.log('Standalone: ?set= detected, fetching', setUrl);
       void this.fetchOqseAndInit(setUrl);
-    } else {
-      this.log('Standalone: no ?set= param, showing URL dialog');
-      this.injectStandaloneUi();
+    } else if (!this.mockItems) {
+      this.log('Standalone: no data source, waiting for user input');
+      // Dialog is auto-opened above if showStandaloneControls is true
     }
+    // When mockItems is set, scheduleMockFallback (called from useMockData)
+    // handles the mock timer. The gear icon is available for loading real data.
   }
+
+  // -------------------------------------------------------------------------
+  // Private: OQSE loading / parsing
+  // -------------------------------------------------------------------------
 
   /**
    * Fetches an OQSE study-set JSON from `url`, builds an `InitSessionPayload`,
@@ -454,19 +744,7 @@ export class MemizyPlugin {
         }
       }
 
-      payload = {
-        sessionId: `standalone-${Date.now()}`,
-        items: rawItems,
-        assets: metaAssets as Record<string, MediaObject>,
-        settings: {
-          shuffle: false,
-          masteryMode: false,
-          maxItems: null,
-          locale: navigator.language.split('-')[0] ?? 'en',
-          theme: 'light',
-          fuel: { balance: 0, multiplier: 1 },
-        },
-      };
+      payload = this.buildStandalonePayload(rawItems, metaAssets as Record<string, MediaObject>);
       this.log('Payload built, assets:', Object.keys(payload.assets));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -477,16 +755,131 @@ export class MemizyPlugin {
 
     // Activate session OUTSIDE the try-catch so plugin errors in onInit
     // propagate normally instead of being silently swallowed.
+    this.activateSession(payload);
+  }
+
+  /**
+   * Parses an OQSE JSON string and fires `onInit`. Used for pasted text and files.
+   * Relative asset paths are NOT resolved (no base URL available).
+   */
+  private initFromOqseText(
+    jsonText: string,
+    onError?: (msg: string) => void,
+  ): void {
+    try {
+      const oqse = JSON.parse(jsonText) as Record<string, unknown>;
+
+      const rawItems = (oqse['items'] as OQSEItem[] | undefined) ?? [];
+      if (!Array.isArray(rawItems)) throw new Error('Missing "items" array.');
+
+      const meta = oqse['meta'] as Record<string, unknown> | undefined;
+      const metaAssets = (meta?.['assets'] ?? {}) as Record<string, Record<string, unknown>>;
+
+      this.log(`Parsed OQSE text: ${rawItems.length} items`);
+
+      const payload = this.buildStandalonePayload(
+        rawItems,
+        metaAssets as Record<string, MediaObject>,
+      );
+      this.activateSession(payload);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[memizy-plugin-sdk] Failed to parse OQSE text:', msg);
+      onError?.(msg);
+    }
+  }
+
+  /** Reads a File as text and delegates to `initFromOqseText`. */
+  private initFromFile(file: File, onError?: (msg: string) => void): void {
+    const reader = new FileReader();
+    reader.onload = () => this.initFromOqseText(reader.result as string, onError);
+    reader.onerror = () => onError?.('Failed to read file.');
+    reader.readAsText(file);
+  }
+
+  /** Builds a standalone `InitSessionPayload` from raw items and assets. */
+  private buildStandalonePayload(
+    items: OQSEItem[],
+    assets: Record<string, MediaObject>,
+  ): InitSessionPayload {
+    return {
+      sessionId: `standalone-${Date.now()}`,
+      items,
+      assets,
+      settings: {
+        shuffle: false,
+        masteryMode: false,
+        maxItems: null,
+        locale: navigator.language.split('-')[0] ?? 'en',
+        theme: 'light',
+        fuel: { balance: 0, multiplier: 1 },
+      },
+      progress: this.standaloneProgress ?? undefined,
+    };
+  }
+
+  /** Common activation logic for standalone and mock modes. */
+  private activateSession(payload: InitSessionPayload): void {
     this.initialized = true;
     if (this.standaloneTimer !== null) {
       clearTimeout(this.standaloneTimer);
       this.standaloneTimer = null;
     }
-    this.removeStandaloneUi();
+    this.hideStandaloneDialog();
     this.sessionStartTime = Date.now();
     this.log('Calling onInit handler');
     this.initHandler?.(payload);
   }
+
+  // -------------------------------------------------------------------------
+  // Private: OQSEP (progress) parsing
+  // -------------------------------------------------------------------------
+
+  /**
+   * Parses OQSEP JSON text. Returns the records on success or an error string.
+   */
+  private parseOqsepText(jsonText: string): { records?: Record<string, ProgressRecord>; error?: string } {
+    try {
+      const doc = JSON.parse(jsonText) as Record<string, unknown>;
+      if (!doc['records'] || typeof doc['records'] !== 'object') {
+        return { error: 'Invalid OQSEP: missing "records" object.' };
+      }
+      if (!doc['meta'] || typeof doc['meta'] !== 'object') {
+        return { error: 'Invalid OQSEP: missing "meta" object.' };
+      }
+      const records = doc['records'] as Record<string, ProgressRecord>;
+      this.log(`Parsed OQSEP: ${Object.keys(records).length} records`);
+      return { records };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** Reads a File as text, parses as OQSEP, stores the progress. */
+  private loadProgressFile(
+    file: File,
+    setStatus: (msg: string, type: string) => void,
+    updateIndicator: () => void,
+  ): void {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = this.parseOqsepText(reader.result as string);
+      if (result.error) {
+        setStatus('\u274c ' + result.error, 's-error');
+      } else {
+        this.standaloneProgress = result.records!;
+        const count = Object.keys(result.records!).length;
+        setStatus(`\u2713 Progress loaded: ${count} record${count !== 1 ? 's' : ''} (${file.name})`, 's-ok');
+        updateIndicator();
+      }
+    };
+    reader.onerror = () => setStatus('Failed to read file.', 's-error');
+    reader.readAsText(file);
+  }
+
+  // -------------------------------------------------------------------------
+  // Private: asset resolution
+  // -------------------------------------------------------------------------
 
   /**
    * Resolves relative `MediaObject.value` paths inside an assets dictionary
@@ -516,62 +909,241 @@ export class MemizyPlugin {
     }
   }
 
-  /** Injects the Shadow DOM URL-input dialog into the page. */
-  private injectStandaloneUi(): void {
+  // -------------------------------------------------------------------------
+  // Private: standalone UI
+  // -------------------------------------------------------------------------
+
+  /**
+   * Injects the floating gear button and settings dialog (Shadow DOM) into the page.
+   * @param autoOpen Whether to show the dialog immediately (vs. requiring a gear click).
+   */
+  private injectStandaloneUi(autoOpen: boolean): void {
+    if (this.standaloneUiHost) return;
+
     const host = document.createElement('div');
     host.setAttribute('data-memizy-standalone', '');
     const shadow = host.attachShadow({ mode: 'closed' });
 
     const style = document.createElement('style');
     style.textContent = STANDALONE_UI_CSS;
-
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `
-      <span class="logo">🧩</span>
-      <h2>Memizy — Standalone Mode</h2>
-      <p>Enter the URL of an <code>.oqse.json</code> study-set file to load the plugin.</p>
-      <div class="row">
-        <input id="url-input" type="url" placeholder="https://example.com/set/data.oqse.json" autocomplete="off" spellcheck="false" />
-        <button id="load-btn">Load →</button>
-      </div>
-      <div class="error" id="error-msg"></div>
-      <p class="hint">Tip: append <code>?set=&lt;url&gt;</code> to the page URL to skip this dialog.</p>
-    `;
-
     shadow.appendChild(style);
-    shadow.appendChild(card);
+
+    // ── Gear button ──
+    const gearBtn = document.createElement('button');
+    gearBtn.className = 'gear-btn';
+    gearBtn.textContent = '\u2699';
+    gearBtn.title = 'Standalone settings';
+    shadow.appendChild(gearBtn);
+
+    // ── Dialog overlay ──
+    const overlay = document.createElement('div');
+    overlay.className = autoOpen ? 'overlay' : 'overlay hidden';
+    overlay.innerHTML = `
+      <div class="card">
+        <div class="header">
+          <span class="logo">\ud83d\ude80</span>
+          <h2>Memizy <span>Standalone</span></h2>
+          <button class="close-btn" id="close-btn">\u00d7</button>
+        </div>
+        <div class="tabs">
+          <button class="tab active" data-tab="set">Study Set</button>
+          <button class="tab" data-tab="progress">Progress</button>
+        </div>
+
+        <div class="tab-body" id="tab-set">
+          <div class="section">
+            <label>Load from URL</label>
+            <div class="row">
+              <input type="url" id="url-input" placeholder="https://example.com/data.oqse.json" autocomplete="off" spellcheck="false" />
+              <button class="btn btn-primary btn-sm" id="url-btn">Load</button>
+            </div>
+          </div>
+          <div class="divider">or</div>
+          <div class="section">
+            <label>Paste OQSE JSON</label>
+            <textarea id="set-json" rows="3" placeholder='{ "items": [ ... ] }'></textarea>
+            <button class="btn btn-secondary btn-sm btn-full" id="set-json-btn" style="margin-top:8px">Load from text</button>
+          </div>
+          <div class="divider">or</div>
+          <div class="section">
+            <label>Upload file</label>
+            <div class="drop-zone" id="set-drop">
+              <span class="dz-icon">\ud83d\udcc1</span>
+              Drop <code>.oqse.json</code> here or click to browse
+              <input type="file" id="set-file" accept=".json,.oqse" hidden />
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-body hidden" id="tab-progress">
+          <div id="progress-status"></div>
+          <div class="section">
+            <label>Paste OQSEP JSON</label>
+            <textarea id="progress-json" rows="3" placeholder='{ "version": "0.1", "meta": { ... }, "records": { ... } }'></textarea>
+            <button class="btn btn-secondary btn-sm btn-full" id="progress-json-btn" style="margin-top:8px">Load progress</button>
+          </div>
+          <div class="divider">or</div>
+          <div class="section">
+            <label>Upload file</label>
+            <div class="drop-zone" id="progress-drop">
+              <span class="dz-icon">\ud83d\udcc1</span>
+              Drop <code>.oqsep</code> file here or click to browse
+              <input type="file" id="progress-file" accept=".oqsep,.json" hidden />
+            </div>
+          </div>
+        </div>
+
+        <div class="status-bar" id="status-msg"></div>
+        <div class="hint">Tip: append <code>?set=&lt;url&gt;</code> to the page URL to auto-load</div>
+      </div>
+    `;
+    shadow.appendChild(overlay);
     document.body.appendChild(host);
+
     this.standaloneUiHost = host;
+    this.standaloneOverlay = overlay;
 
-    const input   = shadow.getElementById('url-input')  as HTMLInputElement;
-    const btn     = shadow.getElementById('load-btn')   as HTMLButtonElement;
-    const errEl   = shadow.getElementById('error-msg')  as HTMLElement;
+    // ── Helpers ──
+    const $ = (id: string) => shadow.getElementById(id);
+    const statusEl = $('status-msg')!;
+    const setStatus = (msg: string, cls: string) => {
+      statusEl.textContent = msg;
+      statusEl.className = `status-bar ${cls}`;
+    };
+    const clearStatus = () => { statusEl.textContent = ''; statusEl.className = 'status-bar'; };
 
-    const submit = () => {
-      const url = input.value.trim();
-      if (!url) { errEl.textContent = '⚠️ Please enter a URL.'; return; }
-      errEl.textContent = '';
-      btn.disabled = true;
-      btn.textContent = 'Loading…';
-      void this.fetchOqseAndInit(url, (msg) => {
-        errEl.textContent = '❌ ' + msg;
-        btn.disabled = false;
-        btn.textContent = 'Load →';
-      });
+    const updateProgressIndicator = () => {
+      const el = $('progress-status');
+      if (!el) return;
+      if (this.standaloneProgress) {
+        const count = Object.keys(this.standaloneProgress).length;
+        el.innerHTML = `<div class="progress-ok">\u2705 ${count} progress record${count !== 1 ? 's' : ''} loaded</div>`;
+      } else {
+        el.innerHTML = '';
+      }
     };
 
-    btn.addEventListener('click', submit);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    // ── Toggle dialog ──
+    gearBtn.addEventListener('click', () => overlay.classList.toggle('hidden'));
+    $('close-btn')!.addEventListener('click', () => overlay.classList.add('hidden'));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.classList.add('hidden');
+    });
 
-    // Auto-focus after paint so it doesn't steal focus from page scripts
-    requestAnimationFrame(() => input.focus());
+    // ── Tab switching ──
+    const tabs = shadow.querySelectorAll('.tab') as NodeListOf<HTMLElement>;
+    const tabBodies: Record<string, HTMLElement> = {
+      set: $('tab-set')!,
+      progress: $('tab-progress')!,
+    };
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const target = tab.dataset['tab']!;
+        Object.values(tabBodies).forEach(b => b.classList.add('hidden'));
+        tabBodies[target]?.classList.remove('hidden');
+        clearStatus();
+      });
+    });
+
+    // ── Study Set: URL ──
+    const urlInput = $('url-input') as HTMLInputElement;
+    const urlBtn = $('url-btn') as HTMLButtonElement;
+    const loadFromUrl = () => {
+      const url = urlInput.value.trim();
+      if (!url) { setStatus('Please enter a URL.', 's-error'); return; }
+      clearStatus();
+      urlBtn.disabled = true;
+      urlBtn.textContent = '\u2026';
+      void this.fetchOqseAndInit(url, (msg) => {
+        setStatus('\u274c ' + msg, 's-error');
+        urlBtn.disabled = false;
+        urlBtn.textContent = 'Load';
+      });
+    };
+    urlBtn.addEventListener('click', loadFromUrl);
+    urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadFromUrl(); });
+
+    // ── Study Set: Paste JSON ──
+    const setJsonArea = $('set-json') as HTMLTextAreaElement;
+    $('set-json-btn')!.addEventListener('click', () => {
+      const text = setJsonArea.value.trim();
+      if (!text) { setStatus('Please paste JSON content.', 's-error'); return; }
+      clearStatus();
+      this.initFromOqseText(text, (msg) => setStatus('\u274c ' + msg, 's-error'));
+    });
+
+    // ── Study Set: File upload ──
+    const setFileInput = $('set-file') as HTMLInputElement;
+    const setDrop = $('set-drop')!;
+    setDrop.addEventListener('click', () => setFileInput.click());
+    setFileInput.addEventListener('change', () => {
+      const file = setFileInput.files?.[0];
+      if (file) {
+        clearStatus();
+        this.initFromFile(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
+      }
+    });
+    setDrop.addEventListener('dragover', (e) => { e.preventDefault(); setDrop.classList.add('drag-over'); });
+    setDrop.addEventListener('dragleave', () => setDrop.classList.remove('drag-over'));
+    setDrop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      setDrop.classList.remove('drag-over');
+      const file = (e as DragEvent).dataTransfer?.files[0];
+      if (file) {
+        clearStatus();
+        this.initFromFile(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
+      }
+    });
+
+    // ── Progress: Paste JSON ──
+    const progressJsonArea = $('progress-json') as HTMLTextAreaElement;
+    $('progress-json-btn')!.addEventListener('click', () => {
+      const text = progressJsonArea.value.trim();
+      if (!text) { setStatus('Please paste OQSEP JSON.', 's-error'); return; }
+      const result = this.parseOqsepText(text);
+      if (result.error) {
+        setStatus('\u274c ' + result.error, 's-error');
+      } else {
+        this.standaloneProgress = result.records!;
+        const count = Object.keys(result.records!).length;
+        setStatus(`\u2713 Progress loaded: ${count} record${count !== 1 ? 's' : ''}`, 's-ok');
+        updateProgressIndicator();
+      }
+    });
+
+    // ── Progress: File upload ──
+    const progressFileInput = $('progress-file') as HTMLInputElement;
+    const progressDrop = $('progress-drop')!;
+    progressDrop.addEventListener('click', () => progressFileInput.click());
+    progressFileInput.addEventListener('change', () => {
+      const file = progressFileInput.files?.[0];
+      if (file) this.loadProgressFile(file, setStatus, updateProgressIndicator);
+    });
+    progressDrop.addEventListener('dragover', (e) => { e.preventDefault(); progressDrop.classList.add('drag-over'); });
+    progressDrop.addEventListener('dragleave', () => progressDrop.classList.remove('drag-over'));
+    progressDrop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      progressDrop.classList.remove('drag-over');
+      const file = (e as DragEvent).dataTransfer?.files[0];
+      if (file) this.loadProgressFile(file, setStatus, updateProgressIndicator);
+    });
+
+    // Auto-focus URL input when dialog is open
+    if (autoOpen) requestAnimationFrame(() => urlInput.focus());
   }
 
-  /** Removes the injected standalone UI element if present. */
+  /** Hides the dialog overlay but keeps the gear button visible. */
+  private hideStandaloneDialog(): void {
+    this.standaloneOverlay?.classList.add('hidden');
+  }
+
+  /** Removes the entire standalone UI element (gear + dialog) from the page. */
   private removeStandaloneUi(): void {
     this.standaloneUiHost?.remove();
     this.standaloneUiHost = null;
+    this.standaloneOverlay = null;
   }
 
   // -------------------------------------------------------------------------
@@ -594,6 +1166,7 @@ export class MemizyPlugin {
       items: this.mockItems ?? [],
       assets: this.mockAssets ?? {},
       settings: defaultSettings,
+      progress: this.standaloneProgress ?? undefined,
     };
   }
 
@@ -819,15 +1392,15 @@ export class MemizyPlugin {
   // -------------------------------------------------------------------------
 
   /**
-   * Provide mock items (and optionally mock settings) to be used when the
-   * plugin is opened outside the Memizy host (no INIT_SESSION arrives within
-   * `standaloneTimeout` ms).
+   * Provide mock items (and optionally mock settings, assets, and progress)
+   * to be used when the plugin is opened outside the Memizy host
+   * (no INIT_SESSION arrives within `standaloneTimeout` ms).
    *
    * Calling this will suppress the built-in standalone URL dialog.
    *
    * Call this before `onInit()` so the mock fires correctly:
    * ```typescript
-   * plugin.useMockData(mockItems, { assets }).onInit(({ items }) => render(items));
+   * plugin.useMockData(mockItems, { assets, progress }).onInit(({ items }) => render(items));
    * ```
    */
   useMockData(
@@ -835,11 +1408,13 @@ export class MemizyPlugin {
     options?: {
       settings?: Partial<SessionSettings>;
       assets?: Record<string, MediaObject>;
+      progress?: Record<string, ProgressRecord>;
     },
   ): this {
     this.mockItems = items;
     this.mockSettings = options?.settings ?? null;
     this.mockAssets = options?.assets ?? null;
+    if (options?.progress) this.standaloneProgress = options.progress;
     // Suppress the auto standalone UI if it was already injected
     this.removeStandaloneUi();
     this.scheduleMockFallback();
@@ -856,7 +1431,7 @@ export class MemizyPlugin {
       return this;
     }
     this.initialized = true;
-    this.removeStandaloneUi();
+    this.hideStandaloneDialog();
     this.sessionStartTime = Date.now();
     this.initHandler?.(this.buildMockPayload());
     return this;

@@ -116,7 +116,8 @@ Sent in response to `PLUGIN_READY`. Contains the complete study material for the
         balance: number,            // Current Fuel balance of the user
         multiplier: number          // Active streak multiplier (e.g., 1.5)
       }
-    }
+    },
+    progress?: Record<string, ProgressRecord>  // OQSEP progress (keyed by item UUID)
   }
 }
 ```
@@ -375,6 +376,7 @@ const plugin = new MemizyPlugin({
   version: '1.0.0',                       // SemVer of this plugin
   standaloneTimeout: 2000,                // Optional: ms to wait before mock fallback
   debug: true,                            // Optional: log SDK lifecycle events to console
+  showStandaloneControls: true,           // Optional: floating ⚙ gear icon in standalone mode
 });
 ```
 
@@ -393,7 +395,18 @@ The SDK automatically detects when the plugin is not running inside a Memizy hos
 | 1 | Host iframe — `INIT_SESSION` postMessage arrives | Normal path; `onInit` fired by host message |
 | 2 | `useMockData()` was called | `onInit` fired after `standaloneTimeout` ms (default: 2000) if no host message |
 | 3 | URL contains `?set=<url>` | OQSE JSON fetched automatically from that URL; `onInit` fired |
-| 4 | None of the above | Built-in Shadow DOM URL-input dialog injected by the SDK |
+| 4 | None of the above | Floating ⚙ gear icon + settings dialog shown automatically |
+
+**Floating gear icon**
+
+In standalone mode the SDK injects a semi-transparent ⚙ gear button at the bottom-right corner of the page (inside a closed Shadow DOM for CSS isolation). Clicking it opens a settings dialog with two tabs:
+
+- **Study Set** — load via URL input, paste OQSE JSON text, or upload/drag-and-drop a `.oqse.json` file
+- **Progress** — load OQSEP progress via pasted JSON text or `.oqsep` file upload
+
+When no `?set=` URL or mock data is present, the dialog opens automatically. After a set is loaded, the dialog hides but the gear icon remains visible so the user can load progress data or a different set.
+
+> Set `showStandaloneControls: false` in the constructor to suppress the built-in UI entirely.
 
 **`?set=` quick-launch URL**
 
@@ -405,9 +418,15 @@ http://localhost:5173/index.html?set=https://example.com/my-set/data.oqse.json
 
 The SDK fetches the URL, parses the `items` array from the OQSE JSON, and fires `onInit` with a synthetic `InitSessionPayload`. The plugin source code remains completely unchanged.
 
-**Built-in URL dialog**
+**OQSEP progress loading**
 
-When neither a `?set=` param nor mock data is present, the SDK injects a fully isolated Shadow DOM overlay into the page. The user (developer) can paste any OQSE file URL and click **Load**. On success the overlay is removed and `onInit` fires normally.
+The SDK supports loading **OQSEP** (Open Quiz & Study Exchange — Progress) files alongside study sets. Progress can be loaded via the standalone dialog (paste JSON or upload `.oqsep` file) before or after loading a study set. When a set is loaded, any stored progress data is included in the `InitSessionPayload.progress` field as a `Record<string, ProgressRecord>` keyed by item UUID.
+
+Each `ProgressRecord` includes:
+- `bucket` (0–4) — Leitner-inspired knowledge level
+- `stats` — `{ attempts, incorrect, streak }` aggregate counters
+- `lastAnswer` — `{ isCorrect, confidence?, answeredAt }` (optional)
+- `appSpecific` — namespaced algorithm-specific data (optional)
 
 **Automatic asset resolution**
 
@@ -508,6 +527,7 @@ plugin.clearItemTimer(itemId: string): this
 plugin.useMockData(items: OQSEItem[], options?: {
   settings?: Partial<SessionSettings>;
   assets?: Record<string, MediaObject>;
+  progress?: Record<string, ProgressRecord>;
 }): this
 
 // Manually trigger onInit with mock data immediately (useful for unit tests)
@@ -691,7 +711,7 @@ npm run build
     "preview": "vite preview"
   },
   "dependencies": {
-    "@memizy/plugin-sdk": "^0.1.4"
+    "@memizy/plugin-sdk": "^0.2.0"
   },
   "devDependencies": {
     "vite": "^6.0.0",

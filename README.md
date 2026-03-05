@@ -3,7 +3,7 @@
 # 🛠️ Memizy Plugin API & SDK
 **Build interactive study modules for the OQSE ecosystem.**
 
-![Version](https://img.shields.io/badge/npm-v0.1.4-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/npm-v0.2.0-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
 
 </div>
@@ -32,7 +32,14 @@ The SDK automatically detects when the plugin is running outside a Memizy host (
 | 1 | Running inside the Memizy iframe | Waits for `INIT_SESSION` postMessage from host |
 | 2 | `useMockData()` was called | Fires `onInit` after `standaloneTimeout` ms if no host message arrives |
 | 3 | `?set=<url>` query parameter present | Fetches the OQSE JSON from that URL and fires `onInit` automatically |
-| 4 | None of the above | Injects a built-in Shadow DOM URL-input dialog where you can paste any OQSE file URL |
+| 4 | None of the above | Shows a floating ⚙ gear icon and opens a settings dialog |
+
+A **floating gear button** (bottom-right corner, semi-transparent) is always visible in standalone mode. Clicking it opens a dialog with two tabs:
+
+- **Study Set** — load a set via URL, paste OQSE JSON, or upload a `.oqse.json` file (drag & drop supported)
+- **Progress** — load OQSEP progress via pasted JSON or `.oqsep` file upload
+
+Plugins can disable the built-in controls by setting `showStandaloneControls: false` in the constructor options.
 
 **Using `?set=` during development:**
 
@@ -43,6 +50,18 @@ http://localhost:5173/index.html?set=https://example.com/my-set/data.oqse.json
 This is the recommended workflow for testing standalone plugins: serve the plugin locally and pass the study-set URL as a query parameter.
 
 All relative `MediaObject.value` paths in `meta.assets` and `item.assets` are automatically resolved to absolute `https://` URLs using the OQSE file's base URL, so plugins always receive ready-to-use asset URLs.
+
+## 📊 OQSEP Progress Support
+
+The SDK supports loading **OQSEP** (Open Quiz & Study Exchange — Progress) files alongside study sets. When progress data is loaded, it is included in the `InitSessionPayload.progress` field as a `Record<string, ProgressRecord>` keyed by item UUID.
+
+Each `ProgressRecord` contains:
+- `bucket` (0–4) — Leitner-inspired knowledge level
+- `stats` — aggregate attempt/incorrect/streak counters
+- `lastAnswer` — details of the most recent answer (optional)
+- `appSpecific` — namespaced algorithm-specific data (optional)
+
+See the [OQSE Specification §2.5](https://github.com/memizy/oqse-specification) for the full OQSEP format.
 
 ## 🚀 Quick Start: Building a Simple Flashcard Player
 
