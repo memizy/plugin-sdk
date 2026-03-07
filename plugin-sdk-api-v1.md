@@ -1,8 +1,9 @@
-# Plugin API Specification v1.0
+﻿# Plugin API Specification v1.0
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Architecture](#architecture)
 - [Lifecycle](#lifecycle)
 - [Message Protocol](#message-protocol)
   - [Host → Plugin messages](#1-host--plugin)
@@ -24,14 +25,18 @@
 
 The Memizy Plugin API allows developers to create custom interactive learning experiences (games, quizzes, simulators) that integrate with the Memizy platform. Plugins run inside a sandboxed `<iframe>` and communicate with the Host (Memizy Player) via a structured message protocol built on `window.postMessage`.
 
-**Plugin developers should use the official SDK** (`@memizy/plugin-sdk`) rather than calling `window.postMessage` directly. The SDK abstracts the low-level protocol, provides type safety, handles the initialization handshake, and offers utilities for timers, progress tracking, and standalone development mode.
+**Plugin developers should use the official SDK** (`@memizy/plugin-sdk`) rather than calling `window.postMessage` directly. The SDK abstracts the low-level protocol, provides type safety, handles the initialization handshake, runs the spaced-repetition algorithm internally, and offers a full standalone development mode.
 
-**Architecture:** Smart Host – Dumb Client
+---
+
+## Architecture
+
+**State-Sync + CRUD + Asset Bridge**
 
 | Role | Responsibility |
 | :--- | :--- |
-| **Host (Memizy Player)** | Owns persistent state. Fetches study sets, calculates Fuel rewards, runs the Spaced Repetition algorithm, persists progress to IndexedDB / Supabase. |
-| **Client (Plugin)** | Stateless UI layer. Renders items, captures user input, reports raw events back to the Host. MUST NOT access persistent storage or perform Spaced Repetition calculations. |
+| **Host (Memizy Player)** | Owns persistent state. Fetches study sets from OPFS, rewards Fuel, persists OQSEP progress to IndexedDB / Supabase. Accepts state deltas from the plugin via `SYNC_PROGRESS`, `MUTATE_ITEMS`, `DELETE_ITEMS`, `MUTATE_META`. |
+| **Plugin (SDK)** | Owns session-level state. Renders items, captures user input, runs the Leitner spaced-repetition reducer internally, and pushes progress deltas to the Host after every interaction. Can read/write OPFS assets through the host bridge (`STORE_ASSET`, `REQUEST_RAW_ASSET`). |
 
 **Security model:** Plugins run in a cross-origin `<iframe>`. The Host verifies the `event.origin` or compares the source `Window` reference on every incoming message. Plugins MUST send all messages to `window.parent` only.
 
@@ -41,43 +46,46 @@ The Memizy Plugin API allows developers to create custom interactive learning ex
 
 ```
 Plugin iframe loads
-        │
-        ▼
-Plugin signals ──► PLUGIN_READY ──────────────────────────► Host
-                                                              │
-                                               Host sends ◄──┘
-                                            INIT_SESSION
-                                                │
-                                                ▼
-        Plugin initializes
-                │
-                ▼ (loop)
-        User answers item ──► ITEM_ANSWERED ──────────────► Host
-                                                              │ calculates Fuel,
-        Plugin receives ◄── HINT_RESPONSE ◄── REQUEST_HINT   │ updates SRS
-          hint text                            (optional)     │
-                │
-                ▼ (optional)
-        Plugin reports ──► PROGRESS_UPDATE ───────────────► Host (updates HUD)
-                │
-                ▼ (optional branch)
-        User pauses ────► SESSION_PAUSED ─────────────────► Host
-        User resumes ◄── SESSION_RESUMED ◄─────────────────  Host
-                │
-                ▼
-        All items done ──► SESSION_COMPLETED ──────────────► Host shows summary
-                                                              │
-        (or host aborts)◄── SESSION_ABORTED ◄──────────────  Host
+        |
+        v
+Plugin ----[PLUGIN_READY]--------------------------------------------> Host
+                                                                          |
+                                                         Host sends <-----+
+                                                       INIT_SESSION
+                                                   (+ optional progress)
+                                                          |
+                                                          v
+                                               Plugin initializes
+                                                          |
+                                                          v (loop)
+  User answers -- answer() ---[SYNC_PROGRESS]----------> Host (OPFS sync)
+  User skips   -- skip()   ---[SYNC_PROGRESS]----------> Host (OPFS sync)
+                                                          |
+                                                          v (optional CRUD)
+  saveItems()  ------------[MUTATE_ITEMS]--------------> Host
+  deleteItems() -----------[DELETE_ITEMS]--------------> Host
+  updateMeta()  -----------[MUTATE_META]---------------> Host
+                                                          |
+                                                          v (optional asset bridge)
+  uploadAsset() -----------[STORE_ASSET]---------------> Host
+  Host responds <----------[ASSET_STORED]-------------- Host
+  getRawAsset() -----------[REQUEST_RAW_ASSET]---------> Host
+  Host responds <----------[RAW_ASSET_PROVIDED]-------- Host
+                                                          |
+                                                          v
+  Plugin done --------------[EXIT_REQUEST]-------------> Host shows summary
+                                                          |
+  (or host aborts) <-------[SESSION_ABORTED]----------- Host
 ```
 
 **Detailed steps:**
 
-1. **Ready Handshake:** Plugin sends `PLUGIN_READY` as soon as the DOM is interactive. This solves a race condition where the Host might otherwise fire `INIT_SESSION` before the plugin's message listener exists.
-2. **Initialization:** Host responds with `INIT_SESSION`, containing the study set and session settings.
-3. **Gameplay:** Plugin renders items. For each user interaction it fires `ITEM_ANSWERED` or `ITEM_SKIPPED`. It MAY send `PROGRESS_UPDATE` whenever its internal completion state changes.
-4. **Hints (optional):** Plugin may call `REQUEST_HINT` for any item. The Host may deduct Fuel as a cost and responds with `HINT_RESPONSE`.
-5. **Pause / Resume:** Plugin fires `SESSION_PAUSED` on internal pause (e.g., in-game menu). Host may also fire `SESSION_RESUMED` to wake the plugin back up (e.g., after the user dismisses a host-level overlay).
-6. **Completion:** Plugin fires `SESSION_COMPLETED`. Host handles summary, rewards, and navigation.
+1. **Ready Handshake:** Plugin sends `PLUGIN_READY` as soon as the DOM is interactive. This solves a race condition where the Host might otherwise fire `INIT_SESSION` before the plugin's message listener is active.
+2. **Initialization:** Host responds with `INIT_SESSION`, containing the full study set, session settings, and optionally the user's existing OQSEP progress data keyed by item UUID.
+3. **Gameplay loop:** Plugin renders items. For each user interaction it calls `plugin.answer()` or `plugin.skip()`. The SDK runs the Leitner reducer, updates its internal progress store, and immediately sends `SYNC_PROGRESS` to keep the host's OPFS copy in sync.
+4. **CRUD (optional):** Plugin may modify the study set (add/edit items, delete items, update metadata) at any point during a session using `saveItems()`, `deleteItems()`, `updateMeta()`.
+5. **Asset bridge (optional):** Plugins inside a cross-origin iframe cannot access OPFS directly. `uploadAsset()` and `getRawAsset()` proxy asset reads/writes through the Host, which responds with `ASSET_STORED` or `RAW_ASSET_PROVIDED`.
+6. **Exit:** Plugin calls `exit()` to send `EXIT_REQUEST`. The Host handles summary, rewards, and navigation.
 7. **Abort:** Host fires `SESSION_ABORTED` when the user navigates away mid-session. Plugin SHOULD stop timers and release resources.
 
 ---
@@ -97,24 +105,24 @@ interface PluginMessage<T extends string, P = undefined> {
 
 #### `INIT_SESSION`
 
-Sent in response to `PLUGIN_READY`. Contains the complete study material for the session.
+Sent in response to `PLUGIN_READY`. Contains the complete study material for the session and, if available, the user's prior OQSEP progress.
 
 ```typescript
 {
   type: 'INIT_SESSION',
   payload: {
-    sessionId: "uuid-of-session",   // Unique ID for this play session
+    sessionId: string,               // Unique ID for this play session
     items: OQSEItem[],               // Full OQSE items array (subset of file)
     assets: Record<string, MediaObject>,  // Set-level shared assets from meta.assets
     settings: {
-      shuffle: boolean,             // Whether items were shuffled by the host
-      masteryMode: boolean,         // Only serve items below mastery threshold
-      maxItems: number | null,      // Cap on items served (null = all)
-      locale: string,               // BCP 47 locale of the UI ("en", "cs")
+      shuffle: boolean,              // Whether items were shuffled by the host
+      masteryMode: boolean,          // Only serve items below mastery threshold
+      maxItems: number | null,       // Cap on items served (null = all)
+      locale: string,                // BCP 47 locale of the UI ("en", "cs")
       theme: 'light' | 'dark' | 'system',
-      fuel: {                       // Current gamification state
-        balance: number,            // Current Fuel balance of the user
-        multiplier: number          // Active streak multiplier (e.g., 1.5)
+      fuel: {
+        balance: number,             // Current Fuel balance of the user
+        multiplier: number           // Active streak multiplier (e.g., 1.5)
       }
     },
     progress?: Record<string, ProgressRecord>  // OQSEP progress (keyed by item UUID)
@@ -122,19 +130,9 @@ Sent in response to `PLUGIN_READY`. Contains the complete study material for the
 }
 ```
 
-#### `SESSION_RESUMED`
-
-Sent when the Host un-pauses a session that was previously paused (either by the plugin or the host itself).
-
-```typescript
-{
-  type: 'SESSION_RESUMED'
-}
-```
-
 #### `SESSION_ABORTED`
 
-Sent when the Host terminates the session externally (user pressed "Abort Mission", browser tab change, etc.). Plugin MUST stop all timers and MUST NOT send further messages after receiving this.
+Sent when the Host terminates the session externally (user pressed "Abort", browser tab change, etc.). Plugin MUST stop all timers and MUST NOT send further messages after receiving this.
 
 ```typescript
 {
@@ -147,7 +145,7 @@ Sent when the Host terminates the session externally (user pressed "Abort Missio
 
 #### `CONFIG_UPDATE`
 
-Sent when runtime settings change (e.g., user toggles dark mode, changes locale from a host overlay).
+Sent when runtime settings change (e.g., user toggles dark mode or changes locale from a host overlay).
 
 ```typescript
 {
@@ -159,19 +157,32 @@ Sent when runtime settings change (e.g., user toggles dark mode, changes locale 
 }
 ```
 
-#### `HINT_RESPONSE`
+#### `ASSET_STORED`
 
-Response to a `REQUEST_HINT` sent by the plugin. May carry the hint text, or a denial if the cost could not be paid.
+Response to a `STORE_ASSET` message. Contains the resolved `MediaObject` for the uploaded asset, or an error string.
 
 ```typescript
 {
-  type: 'HINT_RESPONSE',
+  type: 'ASSET_STORED',
   payload: {
-    itemId: string,
-    granted: boolean,
-    hintText: string | null,       // Populated when granted: true
-    fuelCost: number,              // Fuel deducted (0 if denied or free)
-    remainingFuel: number          // User's Fuel balance after deduction
+    requestId: string,             // Echoed from STORE_ASSET
+    mediaObject?: MediaObject,     // Populated on success
+    error?: string                 // Populated on failure
+  }
+}
+```
+
+#### `RAW_ASSET_PROVIDED`
+
+Response to a `REQUEST_RAW_ASSET` message. Contains the raw `File` object, or an error string.
+
+```typescript
+{
+  type: 'RAW_ASSET_PROVIDED',
+  payload: {
+    requestId: string,             // Echoed from REQUEST_RAW_ASSET
+    file?: File,                   // Populated on success
+    error?: string                 // Populated on failure
   }
 }
 ```
@@ -182,7 +193,7 @@ Response to a `REQUEST_HINT` sent by the plugin. May carry the hint text, or a d
 
 #### `PLUGIN_READY`
 
-MUST be the first message sent by every plugin. Signals that the DOM is ready and the message listener is active. The Host will not send `INIT_SESSION` before receiving this.
+MUST be the first message sent by every plugin. Signals that the DOM is ready and the message listener is active.
 
 ```typescript
 {
@@ -194,94 +205,104 @@ MUST be the first message sent by every plugin. Signals that the DOM is ready an
 }
 ```
 
-#### `ITEM_ANSWERED`
+#### `SYNC_PROGRESS`
 
-MUST be sent for every item the user explicitly attempts. Drives the Spaced Repetition System and Fuel rewards.
+Sent by the SDK after every `answer()` or `skip()` call. Contains a partial map of item UUIDs to their updated `ProgressRecord`. The Host merges these into its persistent OQSEP store.
 
 ```typescript
 {
-  type: 'ITEM_ANSWERED',
+  type: 'SYNC_PROGRESS',
+  payload: Record<string, ProgressRecord>  // One or more updated records
+}
+```
+
+> **Note:** The SDK handles sending `SYNC_PROGRESS` automatically inside `answer()` and `skip()`. Plugins should not send this message directly — use `syncProgress()` only when bulk-loading external records.
+
+#### `MUTATE_ITEMS`
+
+Persist new or updated items to the Host's OPFS copy of the study set. The Host merges by `id`.
+
+```typescript
+{
+  type: 'MUTATE_ITEMS',
   payload: {
-    itemId: string,                // MUST match an id from INIT_SESSION items
-    isCorrect: boolean,
-    timeSpent: number,             // Milliseconds from item display to answer
-    answer: string | null,         // Raw user answer (string or null)
-    confidence: 1 | 2 | 3 | null  // Optional: user self-reported confidence
-                                   //   1 = unsure, 2 = okay, 3 = confident
+    items: OQSEItem[]              // Items to create or update (merged by id)
   }
 }
 ```
 
-#### `ITEM_SKIPPED`
+#### `DELETE_ITEMS`
 
-Sent when the user deliberately skips an item without answering. The Host records this as a non-answer for SRS purposes.
+Delete items from the Host's OPFS copy of the study set by their UUIDs.
 
 ```typescript
 {
-  type: 'ITEM_SKIPPED',
+  type: 'DELETE_ITEMS',
   payload: {
-    itemId: string,
-    reason: 'user_skipped' | 'timeout' | 'not_supported'
-                                   // not_supported: item type unknown to plugin
+    itemIds: string[]              // UUIDs of items to remove
   }
 }
 ```
 
-#### `SESSION_COMPLETED`
+#### `MUTATE_META`
 
-Sent when the plugin has exhausted its item queue or the user completes the experience. Host shows the summary screen.
+Update the study set's metadata in OPFS. Only the supplied fields are overwritten; others remain unchanged.
 
 ```typescript
 {
-  type: 'SESSION_COMPLETED',
+  type: 'MUTATE_META',
   payload: {
-    score: number | null,          // Optional internal game score (0–100)
+    meta: Partial<OQSEMeta>        // Fields to overwrite (title, tags, assets, etc.)
+  }
+}
+```
+
+#### `STORE_ASSET`
+
+Upload a `File` or `Blob` through the Host into OPFS. The Host stores it, creates a `MediaObject` in the set's asset registry, and responds with `ASSET_STORED`.
+
+```typescript
+{
+  type: 'STORE_ASSET',
+  payload: {
+    requestId: string,             // Client-generated UUID for correlation
+    file: File | Blob,             // The asset to store
+    suggestedKey: string           // Logical key in the assets registry (e.g. "hero-image")
+  }
+}
+```
+
+#### `REQUEST_RAW_ASSET`
+
+Request the raw `File` for an asset stored in the Host's OPFS. The Host responds with `RAW_ASSET_PROVIDED`.
+
+```typescript
+{
+  type: 'REQUEST_RAW_ASSET',
+  payload: {
+    requestId: string,             // Client-generated UUID for correlation
+    key: string                    // Logical asset key (e.g. "skull-model")
+  }
+}
+```
+
+#### `EXIT_REQUEST`
+
+Signal to the Host that the session is over. Replaces `SESSION_COMPLETED` from earlier protocol versions.
+
+```typescript
+{
+  type: 'EXIT_REQUEST',
+  payload: {
+    score: number | null,          // Plugin's internal score (0–100), or null
     totalTimeSpent: number         // Total session time in milliseconds
-  }
-}
-```
-
-#### `SESSION_PAUSED`
-
-Sent when the user pauses via an in-plugin control (e.g., in-game pause menu). Host MAY overlay a pause UI.
-
-```typescript
-{
-  type: 'SESSION_PAUSED'
-}
-```
-
-#### `PROGRESS_UPDATE`
-
-Sent at meaningful milestones so the Host HUD can display a progress bar. Plugin SHOULD send this after every `ITEM_ANSWERED` but MAY throttle it.
-
-```typescript
-{
-  type: 'PROGRESS_UPDATE',
-  payload: {
-    itemsDone: number,             // How many items have been answered or skipped
-    itemsTotal: number,            // Total items in the session
-    percentComplete: number        // 0–100 (derived, but explicit for convenience)
-  }
-}
-```
-
-#### `REQUEST_HINT`
-
-Plugin asks the Host to unlock a hint for a specific item. The Host will respond with `HINT_RESPONSE`. Hints have a configurable Fuel cost set in the Host.
-
-```typescript
-{
-  type: 'REQUEST_HINT',
-  payload: {
-    itemId: string
   }
 }
 ```
 
 #### `RESIZE_REQUEST`
 
-Plugin requests a resize of the iframe container. Useful for plugins that change layout dynamically (e.g., reveal a results panel). The Host MAY ignore this if it controls layout exclusively.
+Request that the Host resize the iframe container. The Host MAY ignore this if it controls layout exclusively.
 
 ```typescript
 {
@@ -295,13 +316,13 @@ Plugin requests a resize of the iframe container. Useful for plugins that change
 
 #### `PLUGIN_ERROR`
 
-Sent for non-fatal errors that the Host should log (e.g., unknown item type encountered, media failed to load). Plugin MUST continue running after sending this. For fatal errors, the plugin should display its own error UI and send `SESSION_COMPLETED` with `score: null`.
+Sent for non-fatal errors that the Host should log. Plugin MUST continue running after sending this. For fatal errors, display your own error UI and then send `EXIT_REQUEST` with `score: null`.
 
 ```typescript
 {
   type: 'PLUGIN_ERROR',
   payload: {
-    code: string,                  // Short error code, e.g. "UNSUPPORTED_TYPE"
+    code: string,                  // Short camelCase error code, e.g. "UNSUPPORTED_TYPE"
     message: string,               // Human-readable description
     itemId: string | null,         // Associated item if applicable
     context: Record<string, unknown> | null
@@ -316,30 +337,31 @@ Sent for non-fatal errors that the Host should log (e.g., unknown item type enco
 | Message | Direction | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `PLUGIN_READY` | Plugin → Host | **Yes** | Plugin initialized, ready for data |
-| `INIT_SESSION` | Host → Plugin | **Yes** | Study set + session settings |
-| `ITEM_ANSWERED` | Plugin → Host | **Yes** | User answered an item |
-| `SESSION_COMPLETED` | Plugin → Host | **Yes** | Plugin finished |
-| `SESSION_PAUSED` | Plugin → Host | No | Plugin paused internally |
-| `SESSION_RESUMED` | Host → Plugin | No | Host un-paused the session |
-| `SESSION_ABORTED` | Host → Plugin | No | Host terminated the session |
-| `ITEM_SKIPPED` | Plugin → Host | No | User skipped an item |
-| `PROGRESS_UPDATE` | Plugin → Host | No | Progress percentage for HUD |
-| `REQUEST_HINT` | Plugin → Host | No | Request hint for an item |
-| `HINT_RESPONSE` | Host → Plugin | No | Hint text or denial |
-| `CONFIG_UPDATE` | Host → Plugin | No | Theme / locale changed |
+| `INIT_SESSION` | Host → Plugin | **Yes** | Study set + session settings + optional progress |
+| `SYNC_PROGRESS` | Plugin → Host | **Yes** | Push `ProgressRecord` deltas to host OPFS after every answer/skip |
+| `EXIT_REQUEST` | Plugin → Host | **Yes** | Plugin finished; host shows summary |
+| `SESSION_ABORTED` | Host → Plugin | No | Host terminated the session externally |
+| `CONFIG_UPDATE` | Host → Plugin | No | Theme / locale changed at runtime |
+| `MUTATE_ITEMS` | Plugin → Host | No | Create or update items in the study set |
+| `DELETE_ITEMS` | Plugin → Host | No | Delete items from the study set |
+| `MUTATE_META` | Plugin → Host | No | Update study set metadata |
+| `STORE_ASSET` | Plugin → Host | No | Upload a file asset through host to OPFS |
+| `ASSET_STORED` | Host → Plugin | No | Response to STORE_ASSET (success or error) |
+| `REQUEST_RAW_ASSET` | Plugin → Host | No | Request a raw file from host OPFS |
+| `RAW_ASSET_PROVIDED` | Host → Plugin | No | Response to REQUEST_RAW_ASSET (success or error) |
 | `RESIZE_REQUEST` | Plugin → Host | No | Request iframe resize |
-| `PLUGIN_ERROR` | Plugin → Host | No | Non-fatal error for logging |
+| `PLUGIN_ERROR` | Plugin → Host | No | Non-fatal error for host telemetry |
 
 ---
 
 ## Development Guidelines
 
-1. **Always use the SDK.** Direct `postMessage` calls are an anti-pattern for plugin development. The SDK handles the handshake, serialization, and standalone mode automatically.
+1. **Always use the SDK.** Direct `postMessage` calls are an anti-pattern. The SDK handles the handshake, Leitner reducer, SYNC_PROGRESS dispatch, asset bridge, and standalone mode automatically.
 2. **Responsiveness.** Plugins MUST be fully responsive. The Host may embed the iframe at any width from 320 px (mobile) upward.
-3. **Touch-first.** All interactive targets MUST be at least 44×44 px — the same standard used by the Memizy app itself.
-4. **State ownership.** Plugins are stateless with respect to persistent data. They manage only visual / transient state. The Host is the sole source of truth for progress, Fuel, and SRS data.
-5. **Graceful fallback.** If a plugin receives an item type it does not support, it MUST send `ITEM_SKIPPED` with `reason: 'not_supported'` and continue with the next item. It MUST NOT crash.
-6. **Standalone / Dev mode.** The SDK detects when it is running outside a Memizy host frame (`window.self === window.top`) and automatically enters standalone mode. The developer's `onInit` callback is called identically in all cases — no extra code is required in the plugin. See the _Standalone Mode_ section of the SDK Reference for the full priority chain.
+3. **Touch-first.** All interactive targets MUST be at least 44×44 px  the same standard used by the Memizy app itself.
+4. **Sync every answer.** Call `plugin.answer()` or `plugin.skip()` for every item the user interacts with. This ensures the host's OPFS copy stays in sync and progress is never lost.
+5. **Graceful fallback.** If a plugin receives an item type it does not support, call `plugin.skip(itemId)` and continue with the next item. It MUST NOT crash.
+6. **Standalone / Dev mode.** The SDK detects when it is running outside a Memizy host frame (`window.self === window.top`) and handles session startup automatically. The developer's `onInit` callback is called identically in all cases  no extra code is required in the plugin.
 7. **No external tracking.** Plugins MUST NOT include third-party analytics or tracking scripts. All telemetry flows through the Host via the message protocol.
 8. **Manifest required.** Every plugin MUST embed a valid OQSE Application Manifest (see [`open-study-exchange-v1.md`](open-study-exchange-v1.md), section 2.1) in a `<script type="application/oqse-manifest+json">` tag.
 
@@ -349,6 +371,7 @@ Sent for non-fatal errors that the Host should log (e.g., unknown item type enco
 
 The `@memizy/plugin-sdk` is a zero-dependency TypeScript library that abstracts the full message protocol. It is the recommended (and for published plugins, required) way to build Memizy plugins.
 
+**Version:** `0.2.0`  
 **Source:** [src/index.ts](src/index.ts)
 
 ### Installation
@@ -362,7 +385,7 @@ Or use the CDN build directly in a static HTML plugin via jsDelivr:
 
 ```html
 <script type="module">
-  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk/dist/index.js';
+  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk@0.2.0/dist/memizy-sdk.js';
 </script>
 ```
 
@@ -374,9 +397,9 @@ Or use the CDN build directly in a static HTML plugin via jsDelivr:
 const plugin = new MemizyPlugin({
   id: 'https://my-domain.com/my-plugin',  // MUST match manifest id (URL or URN-UUID)
   version: '1.0.0',                       // SemVer of this plugin
-  standaloneTimeout: 2000,                // Optional: ms to wait before mock fallback
-  debug: true,                            // Optional: log SDK lifecycle events to console
-  showStandaloneControls: true,           // Optional: floating ⚙ gear icon in standalone mode
+  standaloneTimeout: 2000,                // ms to wait before mock/standalone fallback (default: 2000)
+  debug: true,                            // Log SDK lifecycle events to console (default: false)
+  showStandaloneControls: true,           // Floating ⚙ gear icon in standalone mode (default: true)
 });
 ```
 
@@ -386,7 +409,7 @@ The constructor immediately registers the `message` event listener and sends `PL
 
 #### Standalone Mode
 
-The SDK automatically detects when the plugin is not running inside a Memizy host frame (`window.self === window.top`) and handles the session startup without any extra plugin code.
+The SDK automatically detects when the plugin is not running inside a Memizy host frame (`window.self === window.top`) and handles session startup without any extra plugin code.
 
 **Priority chain (evaluated in order):**
 
@@ -394,7 +417,7 @@ The SDK automatically detects when the plugin is not running inside a Memizy hos
 |---|-----------|--------|
 | 1 | Host iframe — `INIT_SESSION` postMessage arrives | Normal path; `onInit` fired by host message |
 | 2 | `useMockData()` was called | `onInit` fired after `standaloneTimeout` ms (default: 2000) if no host message |
-| 3 | URL contains `?set=<url>` | OQSE JSON fetched automatically from that URL; `onInit` fired |
+| 3 | URL contains `?set=<url>` | OQSE JSON fetched automatically; `onInit` fired |
 | 4 | None of the above | Floating ⚙ gear icon + settings dialog shown automatically |
 
 **Floating gear icon**
@@ -404,101 +427,141 @@ In standalone mode the SDK injects a semi-transparent ⚙ gear button at the bot
 - **Study Set** — load via URL input, paste OQSE JSON text, or upload/drag-and-drop a `.oqse.json` file
 - **Progress** — load OQSEP progress via pasted JSON text or `.oqsep` file upload
 
-When no `?set=` URL or mock data is present, the dialog opens automatically. After a set is loaded, the dialog hides but the gear icon remains visible so the user can load progress data or a different set.
+When no `?set=` URL or mock data is present, the dialog opens automatically. After a set is loaded, the dialog hides but the gear icon remains accessible.
 
-> Set `showStandaloneControls: false` in the constructor to suppress the built-in UI entirely.
+> Set `showStandaloneControls: false` to suppress the built-in UI entirely.
 
 **`?set=` quick-launch URL**
 
-The recommended development workflow for standalone plugins is to serve the plugin locally and pass the study-set URL as a query parameter:
-
 ```
-http://localhost:5173/index.html?set=https://example.com/my-set/data.oqse.json
+http://localhost:5173/?set=https://example.com/my-set/data.oqse.json
 ```
 
-The SDK fetches the URL, parses the `items` array from the OQSE JSON, and fires `onInit` with a synthetic `InitSessionPayload`. The plugin source code remains completely unchanged.
-
-**OQSEP progress loading**
-
-The SDK supports loading **OQSEP** (Open Quiz & Study Exchange — Progress) files alongside study sets. Progress can be loaded via the standalone dialog (paste JSON or upload `.oqsep` file) before or after loading a study set. When a set is loaded, any stored progress data is included in the `InitSessionPayload.progress` field as a `Record<string, ProgressRecord>` keyed by item UUID.
-
-Each `ProgressRecord` includes:
-- `bucket` (0–4) — Leitner-inspired knowledge level
-- `stats` — `{ attempts, incorrect, streak }` aggregate counters
-- `lastAnswer` — `{ isCorrect, confidence?, answeredAt }` (optional)
-- `appSpecific` — namespaced algorithm-specific data (optional)
+The SDK fetches the URL, parses the OQSE JSON, and fires `onInit` with a synthetic `InitSessionPayload`. Plugin source code remains unchanged.
 
 **Automatic asset resolution**
 
-In standalone mode the SDK automatically resolves all relative `MediaObject.value` paths inside `meta.assets` and every `item.assets` entry to absolute URLs, using the base URL of the fetched OQSE file. For example, if the OQSE file lives at `https://example.com/sets/geo/data.json` and an asset has `"value": "assets/map.png"`, the SDK rewrites it to `"value": "https://example.com/sets/geo/assets/map.png"` before calling `onInit`. Values that already start with a scheme (e.g., `https://`, `data:`) are left untouched.
-
-This means plugins always receive absolute URLs in `item.assets[key].value` regardless of whether the OQSE file used relative paths.
-
-> **Note:** Custom extension fields on items (e.g. `_assetUrl`) are **not** resolved automatically — only standard OQSE `assets` dictionaries are processed. If a plugin uses non-standard fields with relative paths, it must resolve them itself using the source URL available from `new URLSearchParams(location.search).get('set')`.
+All relative `MediaObject.value` paths inside `meta.assets` and per-item `assets` are resolved to absolute URLs using the OQSE file's base URL before `onInit` is called. Values that already start with a scheme (`https://`, `data:`, etc.) are left untouched.
 
 ---
 
 #### Host → Plugin callbacks
 
 ```typescript
-// Called when the Host sends INIT_SESSION
+// Called when INIT_SESSION is received (or standalone equivalent fires)
 plugin.onInit((payload: InitSessionPayload) => {
   // payload.items    — OQSE items for this session
-  // payload.assets   — set-level shared assets (meta.assets), pre-resolved
-  // payload.settings — session settings (theme, locale, fuel, etc.)
+  // payload.assets    — set-level shared assets, pre-resolved to absolute URLs
+  // payload.settings  — session settings (theme, locale, fuel, etc.)
+  // payload.progress  — existing ProgressRecord map (may be undefined)
 }): this
 
-// Called when the Host sends SESSION_RESUMED
-plugin.onResumed((): void => { ... }): this
-
-// Called when the Host sends SESSION_ABORTED
-plugin.onAborted((reason: AbortReason) => { ... }): this
-
-// Called when the Host sends CONFIG_UPDATE
-plugin.onConfigUpdate((config: Partial<Pick<SessionSettings, 'theme' | 'locale'>>) => { ... }): this
-
-// Called when the Host sends HINT_RESPONSE
-plugin.onHint((response: HintResponsePayload) => { ... }): this
+// Called when CONFIG_UPDATE is received
+plugin.onConfigUpdate((config: Partial<Pick<SessionSettings, 'theme' | 'locale'>>) => {
+  // Apply theme/locale change to the plugin UI
+}): this
 ```
 
 ---
 
-#### Plugin → Host actions
+#### State-Sync
+
+The SDK runs the Leitner spaced-repetition reducer internally and sends `SYNC_PROGRESS` to the host automatically.
 
 ```typescript
-// Report an answered item.
-// If startItemTimer(itemId) was called, timeSpent is measured automatically.
-plugin.answer(itemId: string, isCorrect: boolean, options?: {
-  answer?: string;
-  confidence?: 1 | 2 | 3;
-  timeSpent?: number;  // ms; inferred from timer if omitted
-}): this
+// Record a correct or incorrect answer for an item.
+// - Stops the item timer automatically (or uses options.timeSpent).
+// - Runs the Leitner reducer → new ProgressRecord.
+// - Sends SYNC_PROGRESS to the host.
+plugin.answer(
+  itemId: string,
+  isCorrect: boolean,
+  options?: {
+    answer?: string;       // Raw string answer
+    confidence?: 1 | 2 | 3 | 4;  // OQSEP 4-point scale
+    timeSpent?: number;    // ms; inferred from timer if omitted
+    hintsUsed?: number;    // Number of hints used (default: 0)
+  }
+): this
 
-// Report a skipped item
-plugin.skip(itemId: string, reason?: SkipReason): this
+// Record that the user skipped an item without answering.
+// - Does NOT modify the bucket or stats.
+// - Sets lastAnswer.isSkipped = true.
+// - Sends SYNC_PROGRESS.
+plugin.skip(itemId: string): this
 
-// Signal session complete
-plugin.complete(options?: {
-  score?: number | null;
-}): this
+// Bulk-merge external ProgressRecords into the internal store and send SYNC_PROGRESS.
+// Useful for loading saved progress from a file or server.
+plugin.syncProgress(records: Record<string, ProgressRecord>): this
 
-// Signal internal pause
-plugin.pause(): this
+// Returns a snapshot of the current internal progress state (keyed by item UUID).
+plugin.getProgress(): Record<string, ProgressRecord>
+```
 
-// Push progress to the Host HUD
-plugin.updateProgress(done: number, total: number): this
+---
 
-// Request a hint (Host responds via onHint callback)
-plugin.requestHint(itemId: string): this
+#### CRUD — Study Set Mutation
 
-// Request iframe resize
+```typescript
+// Persist new or updated items to the Host's OPFS copy (merged by id).
+plugin.saveItems(items: OQSEItem[]): this
+
+// Delete items by UUID from the Host's OPFS copy.
+plugin.deleteItems(itemIds: string[]): this
+
+// Update study set metadata (title, description, tags, assets, etc.).
+// Only supplied fields are overwritten.
+plugin.updateMeta(meta: Partial<OQSEMeta>): this
+```
+
+---
+
+#### Asset Bridge
+
+Because plugins run in a cross-origin `<iframe>`, they cannot access OPFS directly. The asset bridge proxies file I/O through the Host.
+
+```typescript
+// Upload a File or Blob to the host's OPFS asset registry.
+// Returns a Promise<MediaObject> with the stored asset descriptor.
+//
+// Example:
+//   const media = await plugin.uploadAsset(file, 'hero-image');
+//   plugin.saveItems([{ ...item, assets: { hero: media } }]);
+plugin.uploadAsset(file: File | Blob, suggestedKey?: string): Promise<MediaObject>
+
+// Request the raw File for an asset stored in OPFS.
+// Returns a Promise<File>.
+//
+// Example:
+//   const file = await plugin.getRawAsset('skull-model');
+//   const url = URL.createObjectURL(file);
+plugin.getRawAsset(key: string): Promise<File>
+```
+
+---
+
+#### Lifecycle
+
+```typescript
+// Signal to the host that the session is over.
+// Sends EXIT_REQUEST with optional score and total time spent.
+plugin.exit(options?: { score?: number | null }): this
+
+// Request that the host resize the iframe container.
+// The host MAY ignore this.
 plugin.requestResize(height: number | 'auto', width?: number | 'auto' | null): this
 
-// Log a non-fatal error to the Host
-plugin.reportError(code: string, message: string, options?: {
-  itemId?: string;
-  context?: Record<string, unknown>;
-}): this
+// Log a non-fatal error to the host for telemetry/debugging.
+// Plugin MUST continue running after calling this.
+plugin.reportError(
+  code: string,
+  message: string,
+  options?: { itemId?: string; context?: Record<string, unknown> }
+): this
+
+// Remove the message listener, reject pending asset promises, and destroy the standalone UI.
+// Call this if you unmount the plugin manually.
+plugin.destroy(): void
 ```
 
 ---
@@ -506,13 +569,14 @@ plugin.reportError(code: string, message: string, options?: {
 #### Timer utilities
 
 ```typescript
-// Start a per-item stopwatch (replaces manual Date.now() tracking)
+// Start a per-item stopwatch. Call when the item becomes visible.
+// The elapsed time is automatically included in answer() and skip().
 plugin.startItemTimer(itemId: string): this
 
-// Stop the timer and return elapsed ms (also clears the timer entry)
+// Stop the timer and return elapsed milliseconds. Clears the entry.
 plugin.stopItemTimer(itemId: string): number
 
-// Stop the timer silently (without returning the value, e.g., on skip)
+// Stop the timer silently (e.g., navigating away before user answers).
 plugin.clearItemTimer(itemId: string): this
 ```
 
@@ -521,19 +585,19 @@ plugin.clearItemTimer(itemId: string): this
 #### Development helpers
 
 ```typescript
-// Register mock items to be used in standalone mode.
-// Suppresses the built-in URL-input dialog; onInit fires after standaloneTimeout ms
-// if no INIT_SESSION message arrives from a host.
+// Register mock items for standalone / dev mode.
+// Suppresses the built-in standalone dialog.
+// onInit fires after standaloneTimeout ms if no INIT_SESSION arrives from a host.
 plugin.useMockData(items: OQSEItem[], options?: {
   settings?: Partial<SessionSettings>;
   assets?: Record<string, MediaObject>;
   progress?: Record<string, ProgressRecord>;
 }): this
 
-// Manually trigger onInit with mock data immediately (useful for unit tests)
+// Manually trigger onInit with mock data immediately (useful for unit tests).
 plugin.triggerMock(): this
 
-// Returns true when running outside the Memizy host (window.self === window.top)
+// Returns true when running outside the Memizy host (window.self === window.top).
 plugin.isStandalone(): boolean
 ```
 
@@ -541,43 +605,77 @@ plugin.isStandalone(): boolean
 
 ### Usage examples
 
-#### Minimal plugin (TypeScript)
+#### Minimal flashcard plugin (TypeScript)
 
 ```typescript
-import { MemizyPlugin, OQSEItem } from '@memizy/plugin-sdk';
+import { MemizyPlugin } from '@memizy/plugin-sdk';
+import type { OQSEItem, InitSessionPayload } from '@memizy/plugin-sdk';
 
 const plugin = new MemizyPlugin({
-  id: 'https://my-domain.com/my-quiz',
+  id: 'https://my-domain.com/flashcard-plugin',
   version: '1.0.0',
+  debug: true,
 });
 
-plugin
-  .useMockData([
-    { id: 'q1', type: 'flashcard', question: 'What is 2+2?', answer: '4' }
-  ])
-  .onInit(({ items, assets }) => {
-    renderItems(items);
-  });
+plugin.useMockData([
+  { id: 'q1', type: 'flashcard', question: 'What is 2 + 2?', answer: '4' },
+  { id: 'q2', type: 'flashcard', question: 'Capital of France?', answer: 'Paris' },
+]);
 
-function renderItems(items: OQSEItem[]) {
-  items.forEach(item => {
-    plugin.startItemTimer(item.id);
-    // ... render UI
-  });
+let items: OQSEItem[] = [];
+let cursor = 0;
+
+plugin.onInit(({ items: sessionItems, progress }: InitSessionPayload) => {
+  items = sessionItems;
+  console.log('Progress loaded:', progress);
+  showItem(items[cursor]!);
+});
+
+function showItem(item: OQSEItem) {
+  plugin.startItemTimer(item.id);
+  document.getElementById('question')!.textContent = String(item['question']);
 }
 
-function onUserAnswer(itemId: string, isCorrect: boolean, rawAnswer: string) {
-  plugin
-    .answer(itemId, isCorrect, { answer: rawAnswer })
-    .updateProgress(++answeredCount, totalItems);
+document.getElementById('btn-correct')!.addEventListener('click', () => {
+  const item = items[cursor]!;
+  plugin.answer(item.id, true, { confidence: 4 });
+  if (++cursor < items.length) showItem(items[cursor]!);
+  else plugin.exit({ score: 100 });
+});
 
-  if (answeredCount === totalItems) {
-    plugin.complete({ score: Math.round((correctCount / totalItems) * 100) });
-  }
+document.getElementById('btn-wrong')!.addEventListener('click', () => {
+  const item = items[cursor]!;
+  plugin.answer(item.id, false, { confidence: 1 });
+  if (++cursor < items.length) showItem(items[cursor]!);
+  else plugin.exit({ score: 0 });
+});
+```
+
+#### Asset upload example
+
+```typescript
+// Upload a user-selected image and attach it to an item
+inputEl.addEventListener('change', async () => {
+  const file = inputEl.files?.[0];
+  if (!file) return;
+
+  const media = await plugin.uploadAsset(file, 'card-image');
+  plugin.saveItems([{ ...currentItem, assets: { image: media } }]);
+});
+```
+
+#### Reading a raw OPFS asset
+
+```typescript
+// Fetch a 3D model stored in OPFS and display it locally
+async function loadModel(key: string) {
+  const file = await plugin.getRawAsset(key);
+  const url = URL.createObjectURL(file);
+  modelViewer.src = url;
 }
 ```
 
-#### Vanilla JavaScript (static HTML plugin)
+#### Vanilla JavaScript (static HTML)
 
 ```html
 <!DOCTYPE html>
@@ -589,68 +687,38 @@ function onUserAnswer(itemId: string, isCorrect: boolean, rawAnswer: string) {
     "version": "1.0",
     "id": "https://my-domain.com/my-quiz",
     "appName": "My Quiz Plugin",
-    "capabilities": {
-      "actions": ["render"],
-      "types": ["flashcard", "mcq-single"]
-    }
+    "capabilities": { "actions": ["render"], "types": ["flashcard"] }
   }
   </script>
 </head>
 <body>
 <div id="app"></div>
-
 <script type="module">
-  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk/dist/index.js';
+  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk@0.2.0/dist/memizy-sdk.js';
 
-  const plugin = new MemizyPlugin({
-    id: 'https://my-domain.com/my-quiz',
-    version: '1.0.0'
-  });
+  const plugin = new MemizyPlugin({ id: 'https://my-domain.com/my-quiz', version: '1.0.0' });
 
-  plugin
-    .useMockData([{ id: 'q1', type: 'flashcard', question: 'Test?', answer: 'Yes' }])
-    .onInit(({ items, assets, settings }) => {
-      console.log('Session started, locale:', settings.locale);
-      renderQuestion(items[0]);
-    });
+  plugin.useMockData([{ id: 'q1', type: 'flashcard', question: 'Test?', answer: 'Yes' }]);
 
-  function renderQuestion(item) {
-    const app = document.getElementById('app');
-    app.innerHTML = `<h2>${item.question}</h2>
-      <button id="btn-correct">Correct</button>
-      <button id="btn-wrong">Wrong</button>`;
+  plugin.onInit(({ items, settings }) => {
+    console.log('Locale:', settings.locale);
+    const item = items[0];
+    document.getElementById('app').innerHTML =
+      `<h2>${item.question}</h2>
+       <button id="ok">Correct</button>
+       <button id="fail">Wrong</button>`;
 
     plugin.startItemTimer(item.id);
-
-    // In ES modules, use addEventListener instead of inline onclick
-    document.getElementById('btn-correct').addEventListener('click', () => {
-      plugin.answer(item.id, true).complete();
+    document.getElementById('ok').addEventListener('click', () => {
+      plugin.answer(item.id, true).exit({ score: 100 });
     });
-    document.getElementById('btn-wrong').addEventListener('click', () => {
-      plugin.answer(item.id, false).complete();
+    document.getElementById('fail').addEventListener('click', () => {
+      plugin.answer(item.id, false).exit({ score: 0 });
     });
-  }
+  });
 </script>
 </body>
 </html>
-```
-
-#### Hint flow
-
-```typescript
-plugin.onHint(({ itemId, granted, hintText, fuelCost }) => {
-  if (granted && hintText) {
-    showHintBubble(itemId, hintText);
-    updateFuelDisplay(fuelCost); // Show cost animation
-  } else {
-    showNotEnoughFuelToast();
-  }
-});
-
-// When user clicks "Hint" button:
-function onHintButtonClick(itemId: string) {
-  plugin.requestHint(itemId);
-}
 ```
 
 ---
@@ -663,38 +731,37 @@ A Memizy plugin is a self-contained static web application. The minimal project 
 
 ```
 my-plugin/
-├── index.html          # Plugin entry point (MUST contain the manifest script tag)
-├── package.json
-├── tsconfig.json       # (if using TypeScript)
-├── src/
-│   └── main.ts
-├── public/
-│   └── preview.png     # 512×512 px plugin preview image for the catalog
-├── README.md
-└── LICENSE
+ index.html          # Plugin entry point (MUST contain the OQSE manifest script tag)
+ package.json
+ vite.config.ts
+ tsconfig.json
+ src/
+    main.ts
+ public/
+    preview.png     # 512×512 px preview image for the plugin catalog
+ README.md
+ LICENSE
 ```
 
-**Step-by-step setup for a new TypeScript plugin:**
+**Step-by-step setup:**
 
 ```bash
-# 1. Clone the template (or scaffold manually)
-git clone https://github.com/memizy/plugin-template my-plugin
-cd my-plugin
+# 1. Create project folder
+mkdir my-plugin && cd my-plugin
+npm init -y
 
 # 2. Install dependencies
-npm install
-
-# 3. Install the SDK
 npm install @memizy/plugin-sdk
+npm install --save-dev vite typescript
 
-# 4. Start the dev server
+# 3. Start the dev server
 npm run dev
-# The plugin opens in your browser. Because no host sends INIT_SESSION,
-# the SDK fires onInit with mock data after 2 seconds automatically.
+# Open http://localhost:5173
+# The SDK enters standalone mode and fires onInit with mock data automatically.
 
-# 5. Build for production
+# 4. Build for production
 npm run build
-# Output goes to dist/. Deploy the contents of dist/ as a static site.
+# Deploy the contents of dist/ as a static site.
 ```
 
 **Minimal `package.json`:**
@@ -703,7 +770,6 @@ npm run build
 {
   "name": "memizy-plugin-my-plugin",
   "version": "1.0.0",
-  "description": "A Memizy learning plugin",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -711,7 +777,7 @@ npm run build
     "preview": "vite preview"
   },
   "dependencies": {
-    "@memizy/plugin-sdk": "^0.3.0"
+    "@memizy/plugin-sdk": "^0.2.0"
   },
   "devDependencies": {
     "vite": "^6.0.0",
@@ -740,10 +806,8 @@ npm run build
 
 ### README template
 
-Paste this into your `README.md` and fill in the blanks:
-
 ```markdown
-# [Plugin Name] — Memizy Plugin
+# [Plugin Name]  Memizy Plugin
 
 > One-sentence description of what the plugin does or teaches.
 
@@ -755,13 +819,9 @@ Paste this into your `README.md` and fill in the blanks:
 
 | OQSE Type | Supported |
 | :--- | :--- |
-| `flashcard` | ✅ |
-| `mcq-single` | ✅ |
-| `short-answer` | ⬜ |
-
-## Study mode
-
-`drill` / `fun` / `game` *(choose one)*
+| `flashcard` |  |
+| `mcq-single` |  |
+| `short-answer` |  |
 
 ## Getting started (development)
 
@@ -770,8 +830,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
-The plugin will load with mock data automatically after 2 seconds.
+Open `http://localhost:5173` in your browser. The SDK enters standalone mode and fires `onInit` with mock data automatically.
 
 ## Building for production
 
@@ -783,18 +842,18 @@ Deploy the contents of `dist/` as a static site (GitHub Pages, Cloudflare Pages,
 
 ## Plugin ID
 
-`https://your-domain.com/your-plugin` (as declared in the OQSE manifest `id` field inside `index.html` — MUST be a URL or URN-UUID)
+`https://your-domain.com/your-plugin`
 
 ## License
 
-[MIT](LICENSE) © [Your Name] [Year]
+[MIT](LICENSE)  [Your Name] [Year]
 ```
 
 ---
 
 ### License
 
-Memizy plugins are encouraged to use the **MIT License**. Copy the text below into your `LICENSE` file, replacing `[Year]` and `[Author]`:
+Memizy plugins are encouraged to use the **MIT License**. Copy the text below into your `LICENSE` file:
 
 ```
 MIT License

@@ -16,6 +16,8 @@ export interface StandaloneUICallbacks {
   getStandaloneProgress: () => Record<string, ProgressRecord> | null;
   /** Called when progress is loaded via the UI — stores it on the plugin. */
   setStandaloneProgress: (records: Record<string, ProgressRecord>) => void;
+  /** Clear all persisted IndexedDB data and reload the page. */
+  onReset: () => void;
 }
 
 /** Manages the Shadow DOM gear button + tabbed dialog in standalone mode. */
@@ -130,6 +132,9 @@ export class StandaloneUI {
 
         <div class="status-bar" id="status-msg"></div>
         <div class="hint">Tip: append <code>?set=&lt;url&gt;</code> to the page URL to auto-load</div>
+        <div class="reset-bar">
+          <button class="btn btn-reset" id="reset-btn">🗑️ Reset Local Data</button>
+        </div>
       </div>
     `;
   }
@@ -163,6 +168,13 @@ export class StandaloneUI {
         el.innerHTML = '';
       }
     };
+
+    // ── Reset ──
+    $('reset-btn')!.addEventListener('click', () => {
+      if (confirm('Clear all locally saved set data, progress and assets? This cannot be undone.')) {
+        cb.onReset();
+      }
+    });
 
     // ── Open / close ──
     gearBtn.addEventListener('click', () => overlay.classList.toggle('hidden'));

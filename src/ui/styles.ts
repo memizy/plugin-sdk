@@ -248,4 +248,24 @@ code {
   align-items: center;
   gap: 8px;
 }
+
+/* ── Reset bar ── */
+.reset-bar {
+  padding: 0 24px 16px;
+  display: flex;
+  justify-content: center;
+}
+.btn-reset {
+  background: transparent;
+  border: 1px solid #fca5a5;
+  color: #ef4444;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-reset:hover {
+  background: #fef2f2;
+}
 `;
