@@ -15,6 +15,7 @@ import type {
 import { defaultLeitnerReducer } from './leitner';
 import { ItemTimerManager } from './timers';
 import { StandaloneStorage } from './storage';
+import { importOqseArchive, exportOqseArchive } from './zipBridge';
 import type { StandaloneUICallbacks } from '../ui/standalone';
 import { StandaloneUI } from '../ui/standalone';
 
@@ -31,7 +32,7 @@ export type { AnswerOptions, ExitOptions, MemizyPluginOptions };
  *
  * - Handles `INIT_SESSION`, `CONFIG_UPDATE`, `ASSET_STORED`, `RAW_ASSET_PROVIDED`.
  * - Runs the Leitner spaced-repetition reducer on every `answer()` call and
- *   sends `SYNC_PROGRESS` to keep the host's OPFS copy in sync.
+ *   sends `SYNC_PROGRESS` to keep the host's storage in sync.
  * - Exposes CRUD helpers (`saveItems`, `deleteItems`, `updateMeta`).
  * - Bridges `uploadAsset` / `getRawAsset` as `Promise`-based wrappers around
  *   `STORE_ASSET` / `REQUEST_RAW_ASSET`.
@@ -43,6 +44,7 @@ export class MemizyPlugin {
   private readonly standaloneTimeout: number;
   private readonly debugMode: boolean;
   private readonly showStandaloneControls: boolean;
+  private readonly standaloneUiPosition: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
   // Registered callbacks
   private initHandler: ((payload: InitSessionPayload) => void) | null = null;
@@ -89,9 +91,10 @@ export class MemizyPlugin {
   constructor(options: MemizyPluginOptions) {
     this.id                    = options.id;
     this.version               = options.version;
-    this.standaloneTimeout     = options.standaloneTimeout ?? 2000;
-    this.debugMode             = options.debug ?? false;
-    this.showStandaloneControls = options.showStandaloneControls ?? true;
+    this.standaloneTimeout      = options.standaloneTimeout ?? 2000;
+    this.debugMode               = options.debug ?? false;
+    this.showStandaloneControls  = options.showStandaloneControls ?? true;
+    this.standaloneUiPosition    = options.standaloneUiPosition ?? 'bottom-right';
 
     this.messageListener = this.handleMessage.bind(this);
     window.addEventListener('message', this.messageListener);
@@ -196,10 +199,11 @@ export class MemizyPlugin {
       this.log('Standalone: restoring saved set from IndexedDB');
       const savedProgress = await this.storage.getProgress();
       if (savedProgress) this.standaloneProgress = savedProgress;
-      const payload = this.buildStandalonePayload(
+      const rawPayload = this.buildStandalonePayload(
         saved.items,
         (saved.meta.assets ?? {}) as Record<string, MediaObject>,
       );
+      const payload = await this.resolveLocalAssets(rawPayload);
       this.activateSession(payload);
       return;
     }
@@ -209,7 +213,7 @@ export class MemizyPlugin {
 
     if (this.showStandaloneControls) {
       const autoOpen = !setUrl && !this.mockItems;
-      this.standaloneUI = new StandaloneUI(autoOpen, this.buildUICallbacks());
+      this.standaloneUI = new StandaloneUI(autoOpen, this.buildUICallbacks(), this.standaloneUiPosition);
     }
 
     if (setUrl) {
@@ -249,6 +253,31 @@ export class MemizyPlugin {
       },
       onReset: () => {
         void this.storage.clearAll().then(() => location.reload());
+      },
+      onLoadOqseArchive: (file, onError) => {
+        void importOqseArchive(file, this.storage)
+          .then(() => location.reload())
+          .catch((err: unknown) => onError(String(err)));
+      },
+      onExportOqse: () => {
+        void exportOqseArchive(this.storage);
+      },
+      onExportProgress: () => {
+        const snap = this.getProgress();
+        const oqsep = {
+          version:   '0.1',
+          meta:      { exportedAt: new Date().toISOString() },
+          records:   snap,
+        };
+        const blob   = new Blob([JSON.stringify(oqsep, null, 2)], { type: 'application/json' });
+        const url    = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `progress-${Date.now()}.oqsep`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
       },
     };
   }
@@ -396,7 +425,38 @@ export class MemizyPlugin {
     reader.readAsText(file);
   }
 
-  // ── Asset resolution ─────────────────────────────────────────────────────
+  // ── Asset resolution (local blob: URL patching) ─────────────────────────
+
+  /**
+   * Scans a payload's `assets` map and each item's `assets` map.
+   * Any `value` that matches a key stored in `StandaloneStorage` (e.g. `assets/image.png`)
+   * is replaced with a `blob:` URL so the plugin can render it directly.
+   * Only used in Standalone Mode after a ZIP import auto-restore.
+   */
+  private async resolveLocalAssets(payload: InitSessionPayload): Promise<InitSessionPayload> {
+    const tryResolve = async (assets: Record<string, MediaObject>): Promise<void> => {
+      for (const key of Object.keys(assets)) {
+        const media = assets[key]!;
+        const val   = media.value;
+        if (typeof val === 'string' && /^assets\//i.test(val)) {
+          try {
+            const blob   = await this.storage.getAsset(val);
+            media.value  = URL.createObjectURL(blob);
+          } catch {
+            // Not in storage — leave as-is
+          }
+        }
+      }
+    };
+    await tryResolve(payload.assets);
+    for (const item of payload.items) {
+      const ia = (item['assets'] ?? {}) as Record<string, MediaObject>;
+      if (ia && typeof ia === 'object') await tryResolve(ia);
+    }
+    return payload;
+  }
+
+  // ── Static asset URL resolver ─────────────────────────────────────────────
 
   private static resolveAssetValues(
     assets: Record<string, Record<string, unknown>>,
@@ -555,7 +615,7 @@ export class MemizyPlugin {
 
   // ── CRUD ─────────────────────────────────────────────────────────────────
 
-  /** Persist new or updated items to the host's OPFS copy of the study set. */
+  /** Persist new or updated items to the host's persistent storage. The host merges by `id`. */
   saveItems(items: OQSEItem[]): this {
     if (this.isStandalone()) void this.storage.saveItems(items);
     this.send('MUTATE_ITEMS', { items });
@@ -563,7 +623,7 @@ export class MemizyPlugin {
     return this;
   }
 
-  /** Delete items from the host's OPFS copy by their UUIDs. */
+  /** Delete items from the host's persistent storage by their UUIDs. */
   deleteItems(itemIds: string[]): this {
     if (this.isStandalone()) void this.storage.deleteItems(itemIds);
     this.send('DELETE_ITEMS', { itemIds });
@@ -571,7 +631,7 @@ export class MemizyPlugin {
     return this;
   }
 
-  /** Update the study set's metadata (title, description, tags, etc.) in OPFS. */
+  /** Update the study set's metadata (title, description, tags, etc.) in the host's storage. */
   updateMeta(meta: Partial<OQSEMeta>): this {
     if (this.isStandalone()) void this.storage.updateMeta(meta);
     this.send('MUTATE_META', { meta });
@@ -582,7 +642,7 @@ export class MemizyPlugin {
   // ── Asset bridge ─────────────────────────────────────────────────────────
 
   /**
-   * Upload a `File` or `Blob` asset through the host into OPFS.
+   * Upload a `File` or `Blob` asset through the host into its storage.
    * Returns a `Promise<MediaObject>` with the stored asset descriptor.
    */
   uploadAsset(file: File | Blob, suggestedKey?: string): Promise<MediaObject> {
@@ -618,8 +678,8 @@ export class MemizyPlugin {
   }
 
   /**
-   * Request the raw `File` for an asset stored in the host's OPFS.
-   * Returns a `Promise<File>`.
+   * Request the raw `File` or `Blob` for an asset stored in the host's storage.
+   * Returns a `Promise<File | Blob>`.
    */
   getRawAsset(key: string): Promise<File | Blob> {
     // Standalone shortcut: read directly from IndexedDB

@@ -59,6 +59,11 @@ export interface SessionSettings {
   locale: string;
   theme: 'light' | 'dark' | 'system';
   fuel: SessionFuelState;
+  /**
+   * Arbitrary key/value pairs the host can pass down to the plugin without
+   * relying on URL parameters (e.g. `{ edit: 'true', difficulty: 'hard' }`).
+   */
+  customParams?: Record<string, string>;
 }
 
 export interface InitSessionPayload {

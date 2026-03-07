@@ -72,6 +72,7 @@ const btnMock     = document.getElementById('btn-mock')     as HTMLButtonElement
 const btnAsset    = document.getElementById('btn-asset')    as HTMLButtonElement;
 const btnProgress = document.getElementById('btn-progress') as HTMLButtonElement;
 const btnExit     = document.getElementById('btn-exit')     as HTMLButtonElement;
+const btnRestart  = document.getElementById('btn-restart')  as HTMLButtonElement;
 
 function log(msg: string, type: 'ok' | 'err' | 'inf' = 'inf'): void {
   const ts = new Date().toLocaleTimeString();
@@ -90,6 +91,7 @@ function enableSessionControls(on: boolean): void {
   btnSkip.disabled    = !on;
   btnNext.disabled    = !on;
   btnExit.disabled    = !on;
+  if (on) btnRestart.disabled = true; // hide restart while session running
 }
 
 function renderItem(item: OQSEItem): void {
@@ -121,6 +123,7 @@ function nextItem(): void {
       <div class="subtitle">All ${items.length} items reviewed!</div>
     `;
     enableSessionControls(false);
+    btnRestart.disabled = false;
     log('All items reviewed — session complete!', 'ok');
     return;
   }
@@ -189,6 +192,14 @@ btnExit.addEventListener('click', () => {
   plugin.exit({ score: 99 });
   log('exit({ score: 99 }) sent', 'ok');
   enableSessionControls(false);
+});
+
+btnRestart.addEventListener('click', () => {
+  cursor = 0;
+  btnRestart.disabled = true;
+  enableSessionControls(true);
+  if (items.length > 0) renderItem(items[cursor]!);
+  log('Session restarted from the beginning.', 'inf');
 });
 
 btnAsset.addEventListener('click', async () => {

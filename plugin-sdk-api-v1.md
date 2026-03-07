@@ -35,8 +35,8 @@ The Memizy Plugin API allows developers to create custom interactive learning ex
 
 | Role | Responsibility |
 | :--- | :--- |
-| **Host (Memizy Player)** | Owns persistent state. Fetches study sets from OPFS, rewards Fuel, persists OQSEP progress to IndexedDB / Supabase. Accepts state deltas from the plugin via `SYNC_PROGRESS`, `MUTATE_ITEMS`, `DELETE_ITEMS`, `MUTATE_META`. |
-| **Plugin (SDK)** | Owns session-level state. Renders items, captures user input, runs the Leitner spaced-repetition reducer internally, and pushes progress deltas to the Host after every interaction. Can read/write OPFS assets through the host bridge (`STORE_ASSET`, `REQUEST_RAW_ASSET`). |
+| **Host (Memizy Player)** | Owns persistent state. Fetches study sets from its own storage, rewards Fuel, persists OQSEP progress. Accepts state deltas from the plugin via `SYNC_PROGRESS`, `MUTATE_ITEMS`, `DELETE_ITEMS`, `MUTATE_META`. |
+| **Plugin (SDK)** | Owns session-level state. Renders items, captures user input, runs the Leitner spaced-repetition reducer internally, and pushes progress deltas to the Host after every interaction. Can read/write assets through the host bridge (`STORE_ASSET`, `REQUEST_RAW_ASSET`). |
 
 **Security model:** Plugins run in a cross-origin `<iframe>`. The Host verifies the `event.origin` or compares the source `Window` reference on every incoming message. Plugins MUST send all messages to `window.parent` only.
 
@@ -58,8 +58,8 @@ Plugin ----[PLUGIN_READY]--------------------------------------------> Host
                                                Plugin initializes
                                                           |
                                                           v (loop)
-  User answers -- answer() ---[SYNC_PROGRESS]----------> Host (OPFS sync)
-  User skips   -- skip()   ---[SYNC_PROGRESS]----------> Host (OPFS sync)
+  User answers -- answer() ---[SYNC_PROGRESS]----------> Host (sync)
+  User skips   -- skip()   ---[SYNC_PROGRESS]----------> Host (sync)
                                                           |
                                                           v (optional CRUD)
   saveItems()  ------------[MUTATE_ITEMS]--------------> Host
@@ -82,9 +82,9 @@ Plugin ----[PLUGIN_READY]--------------------------------------------> Host
 
 1. **Ready Handshake:** Plugin sends `PLUGIN_READY` as soon as the DOM is interactive. This solves a race condition where the Host might otherwise fire `INIT_SESSION` before the plugin's message listener is active.
 2. **Initialization:** Host responds with `INIT_SESSION`, containing the full study set, session settings, and optionally the user's existing OQSEP progress data keyed by item UUID.
-3. **Gameplay loop:** Plugin renders items. For each user interaction it calls `plugin.answer()` or `plugin.skip()`. The SDK runs the Leitner reducer, updates its internal progress store, and immediately sends `SYNC_PROGRESS` to keep the host's OPFS copy in sync.
+3. **Gameplay loop:** Plugin renders items. For each user interaction it calls `plugin.answer()` or `plugin.skip()`. The SDK runs the Leitner reducer, updates its internal progress store, and immediately sends `SYNC_PROGRESS` to keep the host's storage in sync.
 4. **CRUD (optional):** Plugin may modify the study set (add/edit items, delete items, update metadata) at any point during a session using `saveItems()`, `deleteItems()`, `updateMeta()`.
-5. **Asset bridge (optional):** Plugins inside a cross-origin iframe cannot access OPFS directly. `uploadAsset()` and `getRawAsset()` proxy asset reads/writes through the Host, which responds with `ASSET_STORED` or `RAW_ASSET_PROVIDED`.
+5. **Asset bridge (optional):** Plugins inside a cross-origin iframe cannot access host storage directly. `uploadAsset()` and `getRawAsset()` proxy asset reads/writes through the Host, which responds with `ASSET_STORED` or `RAW_ASSET_PROVIDED`.
 6. **Exit:** Plugin calls `exit()` to send `EXIT_REQUEST`. The Host handles summary, rewards, and navigation.
 7. **Abort:** Host fires `SESSION_ABORTED` when the user navigates away mid-session. Plugin SHOULD stop timers and release resources.
 
@@ -220,7 +220,7 @@ Sent by the SDK after every `answer()` or `skip()` call. Contains a partial map 
 
 #### `MUTATE_ITEMS`
 
-Persist new or updated items to the Host's OPFS copy of the study set. The Host merges by `id`.
+Persist new or updated items to the Host's persistent storage. The Host merges by `id`.
 
 ```typescript
 {
@@ -233,7 +233,7 @@ Persist new or updated items to the Host's OPFS copy of the study set. The Host 
 
 #### `DELETE_ITEMS`
 
-Delete items from the Host's OPFS copy of the study set by their UUIDs.
+Delete items from the Host's persistent storage by their UUIDs.
 
 ```typescript
 {
@@ -246,7 +246,7 @@ Delete items from the Host's OPFS copy of the study set by their UUIDs.
 
 #### `MUTATE_META`
 
-Update the study set's metadata in OPFS. Only the supplied fields are overwritten; others remain unchanged.
+Update the study set's metadata in the Host's storage. Only the supplied fields are overwritten; others remain unchanged.
 
 ```typescript
 {
@@ -259,7 +259,7 @@ Update the study set's metadata in OPFS. Only the supplied fields are overwritte
 
 #### `STORE_ASSET`
 
-Upload a `File` or `Blob` through the Host into OPFS. The Host stores it, creates a `MediaObject` in the set's asset registry, and responds with `ASSET_STORED`.
+Upload a `File` or `Blob` through the Host into its storage. The Host stores it, creates a `MediaObject` in the set's asset registry, and responds with `ASSET_STORED`.
 
 ```typescript
 {
@@ -274,7 +274,7 @@ Upload a `File` or `Blob` through the Host into OPFS. The Host stores it, create
 
 #### `REQUEST_RAW_ASSET`
 
-Request the raw `File` for an asset stored in the Host's OPFS. The Host responds with `RAW_ASSET_PROVIDED`.
+Request the raw `File` for an asset stored in the Host's storage. The Host responds with `RAW_ASSET_PROVIDED`.
 
 ```typescript
 {
@@ -338,16 +338,16 @@ Sent for non-fatal errors that the Host should log. Plugin MUST continue running
 | :--- | :--- | :--- | :--- |
 | `PLUGIN_READY` | Plugin → Host | **Yes** | Plugin initialized, ready for data |
 | `INIT_SESSION` | Host → Plugin | **Yes** | Study set + session settings + optional progress |
-| `SYNC_PROGRESS` | Plugin → Host | **Yes** | Push `ProgressRecord` deltas to host OPFS after every answer/skip |
+| `SYNC_PROGRESS` | Plugin → Host | **Yes** | Push `ProgressRecord` deltas to host storage after every answer/skip |
 | `EXIT_REQUEST` | Plugin → Host | **Yes** | Plugin finished; host shows summary |
 | `SESSION_ABORTED` | Host → Plugin | No | Host terminated the session externally |
 | `CONFIG_UPDATE` | Host → Plugin | No | Theme / locale changed at runtime |
 | `MUTATE_ITEMS` | Plugin → Host | No | Create or update items in the study set |
 | `DELETE_ITEMS` | Plugin → Host | No | Delete items from the study set |
 | `MUTATE_META` | Plugin → Host | No | Update study set metadata |
-| `STORE_ASSET` | Plugin → Host | No | Upload a file asset through host to OPFS |
+| `STORE_ASSET` | Plugin → Host | No | Upload a file asset through host to its storage |
 | `ASSET_STORED` | Host → Plugin | No | Response to STORE_ASSET (success or error) |
-| `REQUEST_RAW_ASSET` | Plugin → Host | No | Request a raw file from host OPFS |
+| `REQUEST_RAW_ASSET` | Plugin → Host | No | Request a raw file from host storage |
 | `RAW_ASSET_PROVIDED` | Host → Plugin | No | Response to REQUEST_RAW_ASSET (success or error) |
 | `RESIZE_REQUEST` | Plugin → Host | No | Request iframe resize |
 | `PLUGIN_ERROR` | Plugin → Host | No | Non-fatal error for host telemetry |
@@ -359,7 +359,7 @@ Sent for non-fatal errors that the Host should log. Plugin MUST continue running
 1. **Always use the SDK.** Direct `postMessage` calls are an anti-pattern. The SDK handles the handshake, Leitner reducer, SYNC_PROGRESS dispatch, asset bridge, and standalone mode automatically.
 2. **Responsiveness.** Plugins MUST be fully responsive. The Host may embed the iframe at any width from 320 px (mobile) upward.
 3. **Touch-first.** All interactive targets MUST be at least 44×44 px  the same standard used by the Memizy app itself.
-4. **Sync every answer.** Call `plugin.answer()` or `plugin.skip()` for every item the user interacts with. This ensures the host's OPFS copy stays in sync and progress is never lost.
+4. **Sync every answer.** Call `plugin.answer()` or `plugin.skip()` for every item the user interacts with. This ensures the host's storage stays in sync and progress is never lost.
 5. **Graceful fallback.** If a plugin receives an item type it does not support, call `plugin.skip(itemId)` and continue with the next item. It MUST NOT crash.
 6. **Standalone / Dev mode.** The SDK detects when it is running outside a Memizy host frame (`window.self === window.top`) and handles session startup automatically. The developer's `onInit` callback is called identically in all cases  no extra code is required in the plugin.
 7. **No external tracking.** Plugins MUST NOT include third-party analytics or tracking scripts. All telemetry flows through the Host via the message protocol.
@@ -503,10 +503,10 @@ plugin.getProgress(): Record<string, ProgressRecord>
 #### CRUD — Study Set Mutation
 
 ```typescript
-// Persist new or updated items to the Host's OPFS copy (merged by id).
+// Persist new or updated items to the Host's storage (merged by id).
 plugin.saveItems(items: OQSEItem[]): this
 
-// Delete items by UUID from the Host's OPFS copy.
+// Delete items by UUID from the Host's storage.
 plugin.deleteItems(itemIds: string[]): this
 
 // Update study set metadata (title, description, tags, assets, etc.).
@@ -518,10 +518,10 @@ plugin.updateMeta(meta: Partial<OQSEMeta>): this
 
 #### Asset Bridge
 
-Because plugins run in a cross-origin `<iframe>`, they cannot access OPFS directly. The asset bridge proxies file I/O through the Host.
+Because plugins run in a cross-origin `<iframe>`, they cannot access host storage directly. The asset bridge proxies file I/O through the Host.
 
 ```typescript
-// Upload a File or Blob to the host's OPFS asset registry.
+// Upload a File or Blob to the host's storage.
 // Returns a Promise<MediaObject> with the stored asset descriptor.
 //
 // Example:
@@ -529,13 +529,13 @@ Because plugins run in a cross-origin `<iframe>`, they cannot access OPFS direct
 //   plugin.saveItems([{ ...item, assets: { hero: media } }]);
 plugin.uploadAsset(file: File | Blob, suggestedKey?: string): Promise<MediaObject>
 
-// Request the raw File for an asset stored in OPFS.
-// Returns a Promise<File>.
+// Request the raw File or Blob for an asset stored in host storage.
+// Returns a Promise<File | Blob>.
 //
 // Example:
 //   const file = await plugin.getRawAsset('skull-model');
 //   const url = URL.createObjectURL(file);
-plugin.getRawAsset(key: string): Promise<File>
+plugin.getRawAsset(key: string): Promise<File | Blob>
 ```
 
 ---
@@ -664,10 +664,10 @@ inputEl.addEventListener('change', async () => {
 });
 ```
 
-#### Reading a raw OPFS asset
+#### Reading a raw host asset
 
 ```typescript
-// Fetch a 3D model stored in OPFS and display it locally
+// Fetch a 3D model from host storage and display it locally
 async function loadModel(key: string) {
   const file = await plugin.getRawAsset(key);
   const url = URL.createObjectURL(file);
@@ -746,18 +746,18 @@ my-plugin/
 **Step-by-step setup:**
 
 ```bash
-# 1. Create project folder
-mkdir my-plugin && cd my-plugin
-npm init -y
+# 1. Scaffold a Vite TypeScript project
+npm create vite@latest my-plugin -- --template vanilla-ts
+cd my-plugin
 
-# 2. Install dependencies
+# 2. Install the SDK
 npm install @memizy/plugin-sdk
-npm install --save-dev vite typescript
 
 # 3. Start the dev server
 npm run dev
 # Open http://localhost:5173
-# The SDK enters standalone mode and fires onInit with mock data automatically.
+# The SDK enters standalone mode — use the ⚙ gear dialog to load a study set
+# or append ?set=<url> to the page URL.
 
 # 4. Build for production
 npm run build

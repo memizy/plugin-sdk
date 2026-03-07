@@ -144,6 +144,26 @@ export class StandaloneStorage {
 
   // ── Asset data ────────────────────────────────────────────────────────────
 
+  /** Retrieve all persisted binary assets as a `key → Blob` map. */
+  getAllAssets(): Promise<Record<string, Blob>> {
+    return new Promise<Record<string, Blob>>((resolve, reject) => {
+      const tx    = this.idb.transaction(STORE_ASSETS, 'readonly');
+      const store = tx.objectStore(STORE_ASSETS);
+      const result: Record<string, Blob> = {};
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result as IDBCursorWithValue | null;
+        if (cursor) {
+          result[cursor.key as string] = cursor.value as Blob;
+          cursor.continue();
+        } else {
+          resolve(result);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
   /** Persist a binary asset under the given logical key. */
   saveAsset(key: string, file: File | Blob): Promise<void> {
     const tx = this.idb.transaction(STORE_ASSETS, 'readwrite');

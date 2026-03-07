@@ -18,6 +18,12 @@ export interface StandaloneUICallbacks {
   setStandaloneProgress: (records: Record<string, ProgressRecord>) => void;
   /** Clear all persisted IndexedDB data and reload the page. */
   onReset: () => void;
+  /** Import a full .oqse ZIP archive (saves to storage then reloads). */
+  onLoadOqseArchive: (file: File, onError: (msg: string) => void) => void;
+  /** Trigger .oqse ZIP export download. */
+  onExportOqse: () => void;
+  /** Trigger .oqsep progress JSON download. */
+  onExportProgress: () => void;
 }
 
 /** Manages the Shadow DOM gear button + tabbed dialog in standalone mode. */
@@ -25,7 +31,11 @@ export class StandaloneUI {
   private readonly host: HTMLElement;
   private readonly overlay: HTMLElement;
 
-  constructor(autoOpen: boolean, callbacks: StandaloneUICallbacks) {
+  constructor(
+    autoOpen: boolean,
+    callbacks: StandaloneUICallbacks,
+    position: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' = 'bottom-right',
+  ) {
     this.host = document.createElement('div');
     this.host.setAttribute('data-memizy-standalone', '');
     const shadow = this.host.attachShadow({ mode: 'closed' });
@@ -40,6 +50,12 @@ export class StandaloneUI {
     gearBtn.className = 'gear-btn';
     gearBtn.textContent = '\u2699';
     gearBtn.title = 'Standalone settings';
+    // Apply corner position
+    const [vSide, hSide] = position.split('-') as ['bottom' | 'top', 'right' | 'left'];
+    gearBtn.style[vSide]                                   = '16px';
+    gearBtn.style[vSide === 'bottom' ? 'top'   : 'bottom'] = 'auto';
+    gearBtn.style[hSide]                                   = '16px';
+    gearBtn.style[hSide === 'right'  ? 'left'  : 'right']  = 'auto';
     shadow.appendChild(gearBtn);
 
     // Dialog overlay
@@ -106,7 +122,7 @@ export class StandaloneUI {
             <label>Upload file</label>
             <div class="drop-zone" id="set-drop">
               <span class="dz-icon">\ud83d\udcc1</span>
-              Drop <code>.oqse.json</code> here or click to browse
+              Drop <code>.oqse.json</code> or <code>.oqse</code> here or click to browse
               <input type="file" id="set-file" accept=".json,.oqse" hidden />
             </div>
           </div>
@@ -132,6 +148,10 @@ export class StandaloneUI {
 
         <div class="status-bar" id="status-msg"></div>
         <div class="hint">Tip: append <code>?set=&lt;url&gt;</code> to the page URL to auto-load</div>
+        <div class="export-bar">
+          <button class="btn btn-export" id="export-oqse-btn">📥 Export Set (.oqse)</button>
+          <button class="btn btn-export" id="export-progress-btn">📥 Export Progress (.oqsep)</button>
+        </div>
         <div class="reset-bar">
           <button class="btn btn-reset" id="reset-btn">🗑️ Reset Local Data</button>
         </div>
@@ -168,6 +188,10 @@ export class StandaloneUI {
         el.innerHTML = '';
       }
     };
+
+    // ── Export ──
+    $('export-oqse-btn')!.addEventListener('click', () => cb.onExportOqse());
+    $('export-progress-btn')!.addEventListener('click', () => cb.onExportProgress());
 
     // ── Reset ──
     $('reset-btn')!.addEventListener('click', () => {
@@ -230,15 +254,20 @@ export class StandaloneUI {
     // ── Study Set: File ──
     const setFileInput = $('set-file') as HTMLInputElement;
     const setDrop      = $('set-drop')!;
+    const handleSetFile = (file: File) => {
+      clearStatus();
+      if (file.name.endsWith('.oqse')) {
+        cb.onLoadOqseArchive(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
+      } else {
+        cb.onLoadFile(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
+      }
+    };
     setDrop.addEventListener('click', () => setFileInput.click());
     setFileInput.addEventListener('change', () => {
       const file = setFileInput.files?.[0];
-      if (file) { clearStatus(); cb.onLoadFile(file, (msg) => setStatus('\u274c ' + msg, 's-error')); }
+      if (file) handleSetFile(file);
     });
-    StandaloneUI.wireDrop(setDrop, (file) => {
-      clearStatus();
-      cb.onLoadFile(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
-    });
+    StandaloneUI.wireDrop(setDrop, handleSetFile);
 
     // ── Progress: Paste JSON ──
     const progressJsonArea = $('progress-json') as HTMLTextAreaElement;

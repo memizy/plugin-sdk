@@ -49,6 +49,11 @@ export interface MemizyPluginOptions {
    * Defaults to `true`. Set to `false` to suppress the built-in UI entirely.
    */
   showStandaloneControls?: boolean;
+  /**
+   * Corner where the floating ⚙ gear button is anchored in standalone mode.
+   * Defaults to `'bottom-right'`.
+   */
+  standaloneUiPosition?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 }
 
 // ---------------------------------------------------------------------------

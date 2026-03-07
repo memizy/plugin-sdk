@@ -249,6 +249,26 @@ code {
   gap: 8px;
 }
 
+/* ── Export bar ── */
+.export-bar {
+  padding: 0 24px 8px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.btn-export {
+  background: transparent;
+  border: 1px solid #93c5fd;
+  color: #2563eb;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-export:hover { background: #eff6ff; }
+
 /* ── Reset bar ── */
 .reset-bar {
   padding: 0 24px 16px;

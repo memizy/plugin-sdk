@@ -12,7 +12,7 @@
 
 ## 💡 What is this?
 
-Memizy host applications use a **sandboxed iframe architecture** to render study sets. This SDK provides a TypeScript library around the `window.postMessage` API, allowing custom plugins to communicate with the host. The SDK also runs the **Leitner spaced-repetition algorithm internally**, keeping the host's OPFS progress store in sync after every interaction via the `SYNC_PROGRESS` message.
+Memizy host applications use a **sandboxed iframe architecture** to render study sets. This SDK provides a TypeScript library around the `window.postMessage` API, allowing custom plugins to communicate with the host. The SDK also runs the **Leitner spaced-repetition algorithm internally**, keeping the host's storage in sync after every interaction via the `SYNC_PROGRESS` message.
 
 ## 📦 Installation
 
@@ -34,8 +34,8 @@ Or use the CDN build directly in a static HTML plugin:
 
 | Role | Responsibility |
 |---|---|
-| **Host (Memizy Player)** | Owns persistent storage. Fetches study sets from OPFS, rewards Fuel, persists OQSEP progress to IndexedDB / Supabase. |
-| **Plugin (SDK)** | Owns session-level state. Renders items, runs the Leitner reducer internally, pushes progress deltas via `SYNC_PROGRESS`. Can read/write OPFS assets through the host bridge. |
+| **Host (Memizy Player)** | Owns persistent storage. Fetches study sets, rewards Fuel, persists OQSEP progress to its own database. |
+| **Plugin (SDK)** | Owns session-level state. Renders items, runs the Leitner reducer internally, pushes progress deltas via `SYNC_PROGRESS`. Can read/write assets through the host bridge. |
 
 ## 🧭 Standalone Mode
 
@@ -71,7 +71,7 @@ The SDK runs a **Leitner spaced-repetition reducer** internally on every `answer
 
 1. Stops the item timer (or uses an explicit `timeSpent`).
 2. Computes a new `ProgressRecord` — advances the bucket (0→4) on correct, resets to 1 on incorrect — and sets `nextReviewAt`.
-3. Immediately sends `SYNC_PROGRESS` to the host to keep the OPFS copy in sync.
+3. Immediately sends `SYNC_PROGRESS` to the host to keep its storage in sync.
 
 `skip()` records `isSkipped: true` in `lastAnswer` without touching the bucket or stats, and also sends `SYNC_PROGRESS`.
 
@@ -87,14 +87,14 @@ plugin.updateMeta(partialMeta) // Update title, tags, assets, etc.
 
 ## 🗂️ Asset Bridge
 
-Because plugins run in a cross-origin `<iframe>`, they cannot access OPFS directly. The SDK proxies asset I/O through the host:
+Because plugins run in a cross-origin `<iframe>`, they cannot access host storage directly. The SDK proxies asset I/O through the host:
 
 ```typescript
-// Upload a file to host OPFS and get back a MediaObject
+// Upload a file to host storage and get back a MediaObject
 const media = await plugin.uploadAsset(file, 'hero-image');
 plugin.saveItems([{ ...item, assets: { image: media } }]);
 
-// Read a raw file from host OPFS
+// Read a raw file from host storage
 const file = await plugin.getRawAsset('skull-model');
 const url = URL.createObjectURL(file);
 ```
@@ -170,8 +170,8 @@ document.getElementById('btn-wrong')!.addEventListener('click', () => {
 | `saveItems(items)` | Send `MUTATE_ITEMS` to host. |
 | `deleteItems(ids)` | Send `DELETE_ITEMS` to host. |
 | `updateMeta(meta)` | Send `MUTATE_META` to host. |
-| `uploadAsset(file, key?)` | Upload file to host OPFS → `Promise<MediaObject>`. |
-| `getRawAsset(key)` | Read raw file from host OPFS → `Promise<File>`. |
+| `uploadAsset(file, key?)` | Upload file to host storage → `Promise<MediaObject>`. |
+| `getRawAsset(key)` | Read raw file from host storage → `Promise<File\|Blob>`. |
 | `exit(opts?)` | Send `EXIT_REQUEST` (replaces old `complete()`). |
 | `startItemTimer(id)` | Start per-item stopwatch. |
 | `stopItemTimer(id)` | Stop timer, return elapsed ms. |
