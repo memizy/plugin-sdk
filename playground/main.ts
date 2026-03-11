@@ -1,231 +1,603 @@
-/**
- * playground/main.ts — Memizy Plugin SDK development playground.
+﻿/**
+ * playground/main.ts  -  Memizy Plugin SDK v0.2.0 Playground Editor
  *
- * Tests all major SDK capabilities using mock data:
- *  • onInit / onConfigUpdate
- *  • answer, skip, syncProgress, getProgress
- *  • saveItems, deleteItems, updateMeta
- *  • uploadAsset, getRawAsset
- *  • startItemTimer / stopItemTimer
- *  • exit, requestResize, reportError, isStandalone
+ * Full standalone editor / viewer showcasing ALL SDK capabilities:
+ *  Study:    onInit, answer, skip, startItemTimer, exit, requestResize, reportError
+ *  Edit:     saveItems, deleteItems, updateMeta, import/export .oqse.json
+ *  Assets:   uploadAsset, getRawAsset  (IndexedDB in standalone)
+ *  Progress: getProgress, syncProgress, export .oqsep
+ *  Misc:     isStandalone, standaloneUiPosition, customParams, onConfigUpdate
  */
 
 import { MemizyPlugin } from '../src/index';
-import type { OQSEItem, InitSessionPayload, ProgressRecord } from '../src/index';
+import type { OQSEItem, InitSessionPayload, OQSEMeta } from '../src/index';
 
-// ── Mock study-set data ───────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// Sample data (loaded on "Load Sample Set" click)
+// -----------------------------------------------------------------------------
 
-const MOCK_ITEMS: OQSEItem[] = [
-  {
-    id: 'item-001',
-    type: 'flashcard',
-    question: 'What is the powerhouse of the cell?',
-    answer: 'The mitochondrion.',
-  },
-  {
-    id: 'item-002',
-    type: 'flashcard',
-    question: 'What does HTTP stand for?',
-    answer: 'HyperText Transfer Protocol.',
-  },
-  {
-    id: 'item-003',
-    type: 'flashcard',
-    question: 'What year was the World Wide Web invented?',
-    answer: '1989 (by Tim Berners-Lee at CERN).',
-  },
+const SAMPLE_ITEMS: OQSEItem[] = [
+  { id: 'item-001', type: 'flashcard', question: 'What is the powerhouse of the cell?',    answer: 'The mitochondrion.' },
+  { id: 'item-002', type: 'flashcard', question: 'Capital of Australia?',                   answer: 'Canberra (not Sydney!).' },
+  { id: 'item-003', type: 'mcq-single', question: 'Which planet is closest to the Sun?',   options: ['Venus', 'Mercury', 'Earth', 'Mars'], correct: 1 },
+  { id: 'item-004', type: 'mcq-single', question: 'What does HTTP stand for?',             options: ['HyperText Transfer Protocol', 'Hyper Transfer Text Protocol', 'High Transfer Tech Protocol', 'HyperText Transport Protocol'], correct: 0 },
+  { id: 'item-005', type: 'flashcard', question: 'Who wrote "The Republic"?',               answer: 'Plato.' },
 ];
+const SAMPLE_META: OQSEMeta = { title: 'Sample Study Set', description: 'Built-in demo set for the SDK Playground.' };
 
-// ── SDK instantiation ─────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// SDK instance
+// -----------------------------------------------------------------------------
 
 const plugin = new MemizyPlugin({
-  id: 'https://playground.memizy.local/test-plugin',
+  id: 'https://playground.memizy.local/editor',
   version: '0.2.0',
   standaloneTimeout: 1500,
   debug: true,
   showStandaloneControls: true,
+  standaloneUiPosition: 'bottom-right',
 });
 
-plugin.useMockData(MOCK_ITEMS, {
-  assets: {},
-  settings: { shuffle: false, maxItems: null },
-});
+// -----------------------------------------------------------------------------
+// State
+// -----------------------------------------------------------------------------
 
-// ── Playground state ──────────────────────────────────────────────────────
+let items: OQSEItem[]     = [];
+let setMeta: OQSEMeta     = {};
+let cursor                = 0;
+let answered              = 0;
+/** blobURL cache: key -> blob: URL */
+const assetCache: Record<string, string> = {};
 
-let items: OQSEItem[] = [];
-let cursor = 0;
+// -----------------------------------------------------------------------------
+// Utilities
+// -----------------------------------------------------------------------------
 
-// ── DOM helpers ───────────────────────────────────────────────────────────
+function esc(s: string): string { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function uid(): string { return 'item-' + Date.now().toString(36) + Math.random().toString(36).slice(2,5); }
+function fmtDate(iso?: string): string { if (!iso) return ' - '; const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleDateString(); }
 
-const cardArea     = document.getElementById('card-area')!;
-const progressPanel = document.getElementById('progress-panel') as HTMLElement;
-const progressJson  = document.getElementById('progress-json') as HTMLPreElement;
-const consoleEl    = document.getElementById('console')!;
-
-const btnReveal   = document.getElementById('btn-reveal')   as HTMLButtonElement;
-const btnCorrect  = document.getElementById('btn-correct')  as HTMLButtonElement;
-const btnWrong    = document.getElementById('btn-wrong')    as HTMLButtonElement;
-const btnSkip     = document.getElementById('btn-skip')     as HTMLButtonElement;
-const btnNext     = document.getElementById('btn-next')     as HTMLButtonElement;
-const btnMock     = document.getElementById('btn-mock')     as HTMLButtonElement;
-const btnAsset    = document.getElementById('btn-asset')    as HTMLButtonElement;
-const btnProgress = document.getElementById('btn-progress') as HTMLButtonElement;
-const btnExit     = document.getElementById('btn-exit')     as HTMLButtonElement;
-const btnRestart  = document.getElementById('btn-restart')  as HTMLButtonElement;
-
-function log(msg: string, type: 'ok' | 'err' | 'inf' = 'inf'): void {
+// Console panel
+const consoleEl = document.getElementById('console-panel')!;
+function log(msg: string, type: 'ok'|'err'|'inf'|'warn' = 'inf'): void {
   const ts = new Date().toLocaleTimeString();
-  consoleEl.innerHTML +=
-    `<span class="log-ts">${ts}</span><span class="log-${type}">${escHtml(msg)}</span><br/>`;
+  consoleEl.innerHTML += `<span class="log-ts">${ts}</span><span class="log-${type}">${esc(msg)}</span><br/>`;
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Get element (throw-safe)
+function $<T extends HTMLElement>(id: string): T { return document.getElementById(id) as T; }
+
+// Download helper
+function download(data: string, filename: string, mime = 'application/json'): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([data], { type: mime }));
+  a.download = filename;
+  a.click();
 }
 
-function enableSessionControls(on: boolean): void {
-  btnReveal.disabled  = !on;
-  btnCorrect.disabled = !on;
-  btnWrong.disabled   = !on;
-  btnSkip.disabled    = !on;
-  btnNext.disabled    = !on;
-  btnExit.disabled    = !on;
-  if (on) btnRestart.disabled = true; // hide restart while session running
+// -----------------------------------------------------------------------------
+// Welcome screen
+// -----------------------------------------------------------------------------
+
+$('btn-load-samples').addEventListener('click', async () => {
+  log('Loading sample set via saveItems() + updateMeta()...', 'inf');
+  await plugin.saveItems(SAMPLE_ITEMS);
+  await plugin.updateMeta(SAMPLE_META);
+  log('Sample set saved  -  reloading to trigger onInit...', 'ok');
+  setTimeout(() => location.reload(), 350);
+});
+
+$('btn-new-empty').addEventListener('click', async () => {
+  await plugin.updateMeta({ title: 'New Study Set', description: '' });
+  log('Empty set created  -  reloading...', 'ok');
+  setTimeout(() => location.reload(), 350);
+});
+
+// -----------------------------------------------------------------------------
+// Tab switching
+// -----------------------------------------------------------------------------
+
+function showTab(name: string): void {
+  document.querySelectorAll<HTMLElement>('.tab-content').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b => b.classList.remove('active'));
+  const panel = $(`tab-${name}`);
+  panel.classList.remove('hidden');
+  panel.classList.add('active');
+  (document.querySelector(`.tab[data-tab="${name}"]`) as HTMLButtonElement)?.classList.add('active');
+  if (name === 'progress') renderProgressTable();
+  if (name === 'edit')     renderItemList();
+  if (name === 'assets')   renderAssetGrid();
+}
+
+document.querySelectorAll<HTMLButtonElement>('.tab').forEach(btn => {
+  btn.addEventListener('click', () => showTab(btn.dataset.tab!));
+});
+
+function revealUI(): void {
+  $('welcome-screen').classList.add('hidden');
+  $('tab-bar').classList.remove('hidden');
+  // Un-hide all tab panels so showTab() can display them
+  document.querySelectorAll<HTMLElement>('.tab-content').forEach(p => p.classList.remove('hidden'));
+  showTab('study');
+}
+
+// -----------------------------------------------------------------------------
+// Study tab
+// -----------------------------------------------------------------------------
+
+const cardArea        = $('card-area');
+
+function updateBucketBar(item: OQSEItem): void {
+  const prog   = plugin.getProgress();
+  const rec    = prog[item.id];
+  const bucket = rec?.bucket ?? 0;
+  for (let i = 0; i <= 4; i++) {
+    const dot = $(`bdot${i}`);
+    dot.classList.toggle('cur', i === bucket);
+  }
+  $('blabel').textContent = `Item bucket: B${bucket}`;
+  $('session-stats').textContent = `${answered} answered`;
+}
+
+function renderFlashcard(item: OQSEItem): void {
+  const answer = String((item as { answer?: unknown }).answer ?? '(no answer)');
+  cardArea.innerHTML = `
+    <span class="item-badge flashcard">Flashcard</span>
+    <span class="item-pos">${cursor + 1} / ${items.length}</span>
+    <div class="item-question">${esc(String((item as {question?:unknown}).question ?? ' - '))}</div>
+    <div class="item-answer" id="fc-answer">${esc(answer)}</div>
+  `;
+
+  const assetKey = String((item as {assetKey?:unknown}).assetKey ?? '');
+  if (assetKey && assetCache[assetKey]) {
+    const img = document.createElement('img');
+    img.id = 'item-asset-img';
+    img.src = assetCache[assetKey];
+    img.style.display = 'block';
+    cardArea.appendChild(img);
+  }
+  $<HTMLButtonElement>('btn-reveal').disabled  = false;
+  $<HTMLButtonElement>('btn-correct').disabled = true;
+  $<HTMLButtonElement>('btn-wrong').disabled   = true;
+  $<HTMLButtonElement>('btn-skip').disabled    = false;
+  $<HTMLButtonElement>('btn-next').disabled    = true;
+}
+
+function renderMCQ(item: OQSEItem): void {
+  const opts    = ((item as {options?:unknown}).options as string[]) ?? [];
+  const correct = Number((item as {correct?:unknown}).correct ?? 0);
+  const letters = ['A','B','C','D'];
+  let optsHtml  = '';
+  opts.forEach((o, i) => {
+    optsHtml += `<button class="option-btn" data-idx="${i}"><span class="opt-ltr">${letters[i]}</span>${esc(o)}</button>`;
+  });
+
+  cardArea.innerHTML = `
+    <span class="item-badge mcq-single">MCQ</span>
+    <span class="item-pos">${cursor + 1} / ${items.length}</span>
+    <div class="item-question">${esc(String((item as {question?:unknown}).question ?? ' - '))}</div>
+    <div class="mcq-options">${optsHtml}</div>
+  `;
+
+  cardArea.querySelectorAll<HTMLButtonElement>('.option-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx       = Number(btn.dataset.idx);
+      const isCorrect = idx === correct;
+      btn.classList.add(isCorrect ? 'opt-correct' : 'opt-wrong');
+      if (!isCorrect) {
+        cardArea.querySelectorAll<HTMLButtonElement>('.option-btn')[correct]?.classList.add('opt-correct');
+      }
+      cardArea.querySelectorAll<HTMLButtonElement>('.option-btn').forEach(b => b.disabled = true);
+      plugin.answer(item.id, isCorrect, { confidence: isCorrect ? 4 : 1 });
+      answered++;
+      updateBucketBar(item);
+      log(`MCQ answer(${item.id}, ${isCorrect})`, isCorrect ? 'ok' : 'err');
+      setTimeout(() => moveNext(), 850);
+    });
+  });
+
+  $<HTMLButtonElement>('btn-reveal').disabled  = true;
+  $<HTMLButtonElement>('btn-correct').disabled = true;
+  $<HTMLButtonElement>('btn-wrong').disabled   = true;
+  $<HTMLButtonElement>('btn-skip').disabled    = false;
+  $<HTMLButtonElement>('btn-next').disabled    = true;
 }
 
 function renderItem(item: OQSEItem): void {
-  const answerEl = cardArea.querySelector('#item-answer') as HTMLElement | null;
-  if (answerEl) answerEl.style.display = 'none';
-
-  cardArea.innerHTML = `
-    <div id="item-type">${String(item.type).toUpperCase()}</div>
-    <div id="item-question">${escHtml(String(item.question ?? 'No question'))}</div>
-    <div id="item-answer">${escHtml(String(item.answer ?? '(no answer)'))}</div>
-    <div id="item-id">ID: ${item.id}</div>
-  `;
-
-  btnReveal.onclick = () => {
-    const ans = cardArea.querySelector('#item-answer') as HTMLElement | null;
-    if (ans) ans.style.display = 'block';
-    btnReveal.disabled = true;
-  };
-
   plugin.startItemTimer(item.id);
-  log(`Showing item ${cursor + 1}/${items.length}: "${String(item.question).slice(0, 40)}…"`, 'inf');
+  if (item.type === 'flashcard')  renderFlashcard(item);
+  else if (item.type === 'mcq-single') renderMCQ(item);
+  else {
+    cardArea.innerHTML = `<div class="item-question">${esc(item.type)}: ${esc(String((item as {question?:unknown}).question ?? ' - '))}</div>`;
+  }
+  updateBucketBar(item);
 }
 
-function nextItem(): void {
+function moveNext(): void {
   cursor++;
   if (cursor >= items.length) {
     cardArea.innerHTML = `
-      <div class="waiting">🎉</div>
-      <div class="subtitle">All ${items.length} items reviewed!</div>
+      <div class="waiting">:tada:</div>
+      <div class="waiting-label">All ${items.length} items reviewed!</div>
     `;
-    enableSessionControls(false);
-    btnRestart.disabled = false;
-    log('All items reviewed — session complete!', 'ok');
+    enableSession(false);
+    $<HTMLButtonElement>('btn-restart').disabled = false;
+    log(`Session complete. ${answered} items answered.`, 'ok');
     return;
   }
   renderItem(items[cursor]!);
 }
 
-// ── Initialise ───────────────────────────────────────────────────────────
+function enableSession(on: boolean): void {
+  (['btn-reveal','btn-correct','btn-wrong','btn-skip','btn-next','btn-exit'] as const).forEach(id => {
+    $<HTMLButtonElement>(id).disabled = !on;
+  });
+  if (on) $<HTMLButtonElement>('btn-restart').disabled = true;
+}
+
+// Reveal (flashcard)
+$('btn-reveal').addEventListener('click', () => {
+  const ansEl = document.getElementById('fc-answer');
+  if (ansEl) ansEl.style.display = 'block';
+  $<HTMLButtonElement>('btn-reveal').disabled  = true;
+  $<HTMLButtonElement>('btn-correct').disabled = false;
+  $<HTMLButtonElement>('btn-wrong').disabled   = false;
+  $<HTMLButtonElement>('btn-next').disabled    = false;
+});
+
+$('btn-correct').addEventListener('click', () => {
+  const item = items[cursor]; if (!item) return;
+  plugin.answer(item.id, true, { confidence: 4 });
+  answered++;
+  updateBucketBar(item);
+  log(`answer(${item.id}, correct)`, 'ok');
+  moveNext();
+});
+
+$('btn-wrong').addEventListener('click', () => {
+  const item = items[cursor]; if (!item) return;
+  plugin.answer(item.id, false, { confidence: 1 });
+  answered++;
+  updateBucketBar(item);
+  log(`answer(${item.id}, wrong)`, 'err');
+  moveNext();
+});
+
+$('btn-skip').addEventListener('click', () => {
+  const item = items[cursor]; if (!item) return;
+  plugin.skip(item.id);
+  log(`skip(${item.id})`, 'warn');
+  moveNext();
+});
+
+$('btn-next').addEventListener('click', () => moveNext());
+
+$('btn-restart').addEventListener('click', () => {
+  cursor  = 0;
+  answered = 0;
+  $<HTMLButtonElement>('btn-restart').disabled = true;
+  enableSession(true);
+  if (items[0]) renderItem(items[0]);
+  log('Session restarted.', 'inf');
+});
+
+$('btn-exit').addEventListener('click', () => {
+  plugin.exit({ score: Math.round((answered / Math.max(items.length, 1)) * 100) });
+  enableSession(false);
+  log('exit() called.', 'ok');
+});
+
+$('btn-resize-test').addEventListener('click', () => {
+  plugin.requestResize(640);
+  log('requestResize(640) called.', 'inf');
+});
+
+$('btn-report-err').addEventListener('click', () => {
+  plugin.reportError('PLAYGROUND_TEST', 'Test error from the playground editor.');
+  log('reportError("PLAYGROUND_TEST", ...) called.', 'warn');
+});
+
+// -----------------------------------------------------------------------------
+// Edit tab
+// -----------------------------------------------------------------------------
+
+function renderItemList(): void {
+  const list   = $('item-list');
+  const prog   = plugin.getProgress();
+  $('items-count').textContent = String(items.length);
+  $('edit-item-count').textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+
+  if (items.length === 0) {
+    list.innerHTML = '<div class="text-muted" style="text-align:center;padding:20px;">No items yet. Add one below.</div>';
+    return;
+  }
+
+  list.innerHTML = items.map(item => {
+    const bucket = prog[item.id]?.bucket ?? 0;
+    const q = esc(String((item as {question?:unknown}).question ?? ' - ')).slice(0, 80);
+    return `
+      <div class="item-row">
+        <span class="irt ${item.type}">${esc(item.type)}</span>
+        <span class="irq" title="${esc(String((item as {question?:unknown}).question ?? ' - '))}">${q}</span>
+        <span class="bpill bp${bucket}">B${bucket}</span>
+        <button class="btn btn-ghost btn-sm" data-del="${esc(item.id)}">&times;</button>
+      </div>`;
+  }).join('');
+
+  list.querySelectorAll<HTMLButtonElement>('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.del!;
+      plugin.deleteItems([id]);
+      items = items.filter(i => i.id !== id);
+      log(`deleteItems(["${id}"])`, 'warn');
+      renderItemList();
+    });
+  });
+}
+
+// Setup meta fields from current setMeta
+function populateMetaFields(): void {
+  $<HTMLInputElement>('input-set-title').value = setMeta.title ?? '';
+  $<HTMLInputElement>('input-set-desc' ).value = setMeta.description ?? '';
+}
+
+$('btn-save-meta').addEventListener('click', () => {
+  const title = ($<HTMLInputElement>('input-set-title')).value.trim();
+  const desc  = ($<HTMLInputElement>('input-set-desc' )).value.trim();
+  plugin.updateMeta({ title, description: desc });
+  setMeta.title       = title;
+  setMeta.description = desc;
+  $('header-set-title').textContent = title || 'Untitled';
+  log(`updateMeta({ title: "${title}", description: "${desc}" })`, 'ok');
+});
+
+// Item type switcher
+$('select-item-type').addEventListener('change', (e) => {
+  const val = (e.target as HTMLSelectElement).value;
+  if (val === 'mcq-single') {
+    $('fc-fields').classList.add('hidden');
+    $('mcq-fields').classList.remove('hidden');
+  } else {
+    $('fc-fields').classList.remove('hidden');
+    $('mcq-fields').classList.add('hidden');
+  }
+});
+
+$('btn-add-item').addEventListener('click', () => {
+  const type     = ($<HTMLSelectElement>('select-item-type')).value;
+  const question = ($<HTMLInputElement> ('input-item-question')).value.trim();
+  const assetKey = ($<HTMLInputElement> ('input-item-asset')).value.trim();
+  if (!question) { log('Question is empty!', 'err'); return; }
+
+  let newItem: OQSEItem;
+  if (type === 'flashcard') {
+    const answer = ($<HTMLTextAreaElement>('input-fc-answer')).value.trim();
+    if (!answer) { log('Answer is empty!', 'err'); return; }
+    newItem = { id: uid(), type: 'flashcard', question, answer, ...(assetKey ? { assetKey } : {}) };
+  } else {
+    const opts = Array.from(document.querySelectorAll<HTMLInputElement>('.mopt')).map(i => i.value.trim()).filter(Boolean);
+    if (opts.length < 2) { log('At least 2 MCQ options required!', 'err'); return; }
+    const correct = Number((document.querySelector<HTMLInputElement>('input[name="copt"]:checked'))?.value ?? 0);
+    newItem = { id: uid(), type: 'mcq-single', question, options: opts, correct, ...(assetKey ? { assetKey } : {}) };
+  }
+
+  plugin.saveItems([newItem]);
+  items.push(newItem);
+  log(`saveItems([{ id: "${newItem.id}", type: "${type}", ... }])`, 'ok');
+  renderItemList();
+  btnClearForm();
+});
+
+function btnClearForm(): void {
+  ($<HTMLInputElement> ('input-item-question')).value = '';
+  ($<HTMLInputElement> ('input-item-asset')).value    = '';
+  ($<HTMLTextAreaElement>('input-fc-answer')).value   = '';
+  document.querySelectorAll<HTMLInputElement>('.mopt').forEach(i => i.value = '');
+}
+$('btn-clear-form').addEventListener('click', btnClearForm);
+
+// Export .oqse.json
+$('btn-export-json').addEventListener('click', () => {
+  const payload = { meta: setMeta, items };
+  download(JSON.stringify(payload, null, 2), 'export.oqse.json');
+  log(`Exported ${items.length} items as export.oqse.json.`, 'ok');
+});
+
+// Import .oqse.json
+$<HTMLInputElement>('input-import-json').addEventListener('change', (e) => {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result)) as { meta?: OQSEMeta; items?: OQSEItem[] };
+      const importedItems = data.items ?? [];
+      const importedMeta  = data.meta  ?? {};
+      plugin.saveItems(importedItems);
+      plugin.updateMeta(importedMeta);
+      log(`Imported ${importedItems.length} items from ${file.name}. Reloading...`, 'ok');
+      setTimeout(() => location.reload(), 400);
+    } catch(err) {
+      log(`Import failed: ${String(err)}`, 'err');
+    }
+  };
+  reader.readAsText(file);
+});
+
+// -----------------------------------------------------------------------------
+// Assets tab
+// -----------------------------------------------------------------------------
+
+function renderAssetGrid(): void {
+  const grid = $('asset-grid');
+  const empty = $('assets-empty');
+  const keys  = Object.keys(assetCache);
+  if (keys.length === 0) {
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML = keys.map(key => {
+    const url = assetCache[key];
+    const isImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(key);
+    const thumb   = isImage ? `<img src="${url}" alt="${esc(key)}" />` : `<span style="font-size:2rem">&#128196;</span>`;
+    return `
+      <div class="asset-card">
+        <div class="athumb">${thumb}</div>
+        <div class="ainfo">
+          <div class="akey" title="${esc(key)}">${esc(key)}</div>
+          <div class="aact">
+            <button class="btn btn-ghost btn-sm" data-copy="${esc(key)}">&#128203; Key</button>
+            <button class="btn btn-ghost btn-sm" data-raw="${esc(key)}">&#128269; Raw</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const emptyEl = document.getElementById('assets-empty');
+  if (emptyEl) grid.insertAdjacentElement('afterbegin', emptyEl);
+
+  grid.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigator.clipboard.writeText(btn.dataset.copy!).catch(() => {});
+      log(`Key "${btn.dataset.copy}" copied to clipboard.`, 'ok');
+    });
+  });
+
+  grid.querySelectorAll<HTMLButtonElement>('[data-raw]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const key = btn.dataset.raw!;
+      try {
+        const raw = await plugin.getRawAsset(key);
+        log(`getRawAsset("${key}") -> ${raw ? `File/Blob size=${(raw as Blob).size}B type=${(raw as Blob).type}` : 'null'}`, 'ok');
+      } catch(err) {
+        log(`getRawAsset("${key}") failed: ${String(err)}`, 'err');
+      }
+    });
+  });
+}
+
+$('btn-upload-asset').addEventListener('click', async () => {
+  const keyInput  = $<HTMLInputElement>('input-asset-key');
+  const fileInput = $<HTMLInputElement>('input-asset-file');
+  const key   = keyInput.value.trim();
+  const file  = fileInput.files?.[0];
+  if (!key)  { log('Asset key is empty!', 'err'); return; }
+  if (!file) { log('No file selected!', 'err'); return; }
+
+  log(`uploadAsset("${key}", ${file.name})...`, 'inf');
+  try {
+    const media = await plugin.uploadAsset(file, key);
+    assetCache[key] = media.value; // blob: URL in standalone
+    log(`uploadAsset resolved: type=${media.type} url=${media.value.slice(0,40)}...`, 'ok');
+    keyInput.value  = '';
+    fileInput.value = '';
+    renderAssetGrid();
+  } catch(err) {
+    log(`uploadAsset failed: ${String(err)}`, 'err');
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Progress tab
+// -----------------------------------------------------------------------------
+
+function renderProgressTable(): void {
+  const tbody  = $('progress-tbody');
+  const prog   = plugin.getProgress();
+  const keys   = Object.keys(prog);
+  if (keys.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:20px;">No progress yet  -  study some items first.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = keys.map(id => {
+    const r   = prog[id]!;
+    const itm = items.find(i => i.id === id);
+    const q   = esc(String((itm as {question?:unknown} | undefined)?.question ?? id)).slice(0, 50);
+    return `
+      <tr>
+        <td><code>${esc(id)}</code></td>
+        <td>${q}</td>
+        <td><span class="bb bb${r.bucket}">${r.bucket}</span></td>
+        <td>${r.stats.attempts}</td>
+        <td>${r.stats.streak}</td>
+        <td>${esc(r.lastAnswer?.answeredAt ? fmtDate(r.lastAnswer.answeredAt) : ' - ')}</td>
+        <td>${r.nextReviewAt ? fmtDate(r.nextReviewAt) : ' - '}</td>
+      </tr>`;
+  }).join('');
+}
+
+$('btn-refresh-progress').addEventListener('click', () => {
+  renderProgressTable();
+  log(`getProgress(): ${Object.keys(plugin.getProgress()).length} records refreshed.`, 'ok');
+});
+
+$('btn-export-oqsep').addEventListener('click', () => {
+  const prog = plugin.getProgress();
+  const data = JSON.stringify({ version: '1.0', meta: setMeta, records: prog }, null, 2);
+  download(data, 'export.oqsep');
+  log(`Exported .oqsep with ${Object.keys(prog).length} records.`, 'ok');
+});
+
+$('btn-sync-all').addEventListener('click', () => {
+  const prog = plugin.getProgress();
+  plugin.syncProgress(prog);
+  log(`syncProgress(${Object.keys(prog).length} records) -> SYNC_PROGRESS sent.`, 'ok');
+});
+
+// -----------------------------------------------------------------------------
+// onInit  -  fires once the IDB set is loaded (standalone) or host sends INIT_SESSION
+// -----------------------------------------------------------------------------
 
 plugin
   .onInit((payload: InitSessionPayload) => {
-    items  = [...payload.items];
-    cursor = 0;
-    enableSessionControls(true);
-    log(`onInit: ${items.length} items, sessionId=${payload.sessionId}`, 'ok');
-    if (items.length > 0) renderItem(items[cursor]!);
+    items    = [...payload.items];
+    setMeta  = { title: payload.assets?.['__meta__']?.altText, ...payload };
+    cursor   = 0;
+    answered = 0;
+
+    // Resolve set-level assets into cache
+    Object.entries(payload.assets ?? {}).forEach(([k, mo]) => {
+      if (mo?.value) assetCache[k] = mo.value;
+    });
+    // Resolve per-item assets
+    items.forEach(item => {
+      const ia = (item as { assets?: Record<string, { value: string }> }).assets;
+      Object.entries(ia ?? {}).forEach(([k, mo]) => {
+        if (mo?.value) assetCache[k] = mo.value;
+      });
+    });
+
+    // Update header
+    const title = (payload as { meta?: OQSEMeta }).meta?.title
+      ?? (payload as { title?: string }).title
+      ?? 'Untitled Set';
+    $('header-set-title').textContent = title;
+    setMeta.title = title;
+
+    log(`onInit: ${items.length} items  |  isStandalone=${plugin.isStandalone()}  |  customParams=${JSON.stringify(payload.settings?.customParams ?? {})}`, 'ok');
+
+    if (items.length === 0) {
+      revealUI();
+      cardArea.innerHTML = `<div class="waiting">&#128221;</div><div class="waiting-label">Set is empty - use the Edit tab to add items.</div>`;
+      enableSession(false);
+      $<HTMLButtonElement>('btn-restart').disabled = true;
+      populateMetaFields();
+      return;
+    }
+
+    revealUI();
+    populateMetaFields();
+    enableSession(true);
+    renderItem(items[0]!);
   })
   .onConfigUpdate((cfg) => {
     log(`onConfigUpdate: ${JSON.stringify(cfg)}`, 'inf');
   });
 
-// ── Button wiring ────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// Boot log
+// -----------------------------------------------------------------------------
 
-btnCorrect.addEventListener('click', () => {
-  const item = items[cursor];
-  if (!item) return;
-  plugin.answer(item.id, true, { confidence: 4 });
-  log(`answer(${item.id}, true, confidence=4)`, 'ok');
-  nextItem();
-});
-
-btnWrong.addEventListener('click', () => {
-  const item = items[cursor];
-  if (!item) return;
-  plugin.answer(item.id, false, { confidence: 1 });
-  log(`answer(${item.id}, false, confidence=1)`, 'err');
-  nextItem();
-});
-
-btnSkip.addEventListener('click', () => {
-  const item = items[cursor];
-  if (!item) return;
-  plugin.skip(item.id);
-  log(`skip(${item.id})`, 'inf');
-  nextItem();
-});
-
-btnNext.addEventListener('click', () => {
-  const item = items[cursor];
-  if (item) plugin.clearItemTimer(item.id);
-  nextItem();
-});
-
-btnMock.addEventListener('click', () => {
-  plugin.triggerMock();
-  log('triggerMock() fired', 'inf');
-});
-
-btnProgress.addEventListener('click', () => {
-  const snap = plugin.getProgress();
-  progressJson.textContent = JSON.stringify(snap, null, 2);
-  progressPanel.style.display = 'block';
-  log(`getProgress(): ${Object.keys(snap).length} records`, 'ok');
-});
-
-btnExit.addEventListener('click', () => {
-  plugin.exit({ score: 99 });
-  log('exit({ score: 99 }) sent', 'ok');
-  enableSessionControls(false);
-});
-
-btnRestart.addEventListener('click', () => {
-  cursor = 0;
-  btnRestart.disabled = true;
-  enableSessionControls(true);
-  if (items.length > 0) renderItem(items[cursor]!);
-  log('Session restarted from the beginning.', 'inf');
-});
-
-btnAsset.addEventListener('click', async () => {
-  // Create a tiny 1×1 white PNG blob as a test asset
-  const b64 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==';
-  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: 'image/png' });
-  log('uploadAsset() called with 1×1 test PNG…', 'inf');
-  try {
-    const media = await plugin.uploadAsset(blob, 'test-1x1.png');
-    log(`uploadAsset resolved: ${JSON.stringify(media)}`, 'ok');
-  } catch (err) {
-    // In standalone / no-host mode this will reject — expected behaviour
-    log(`uploadAsset rejected (expected outside host): ${String(err)}`, 'err');
-  }
-});
-
-// ── Misc API smoke tests ─────────────────────────────────────────────────
-
-plugin.requestResize(600);
-plugin.reportError('PLAYGROUND_BOOT', 'Playground started successfully — this is a test error report.');
-log(`isStandalone(): ${plugin.isStandalone()}`, 'inf');
-
-// CRUD smoke (host not present — postMessage goes nowhere, that is fine for dev)
-plugin.saveItems([{ id: 'item-999', type: 'flashcard', question: 'New item.' }]);
-plugin.deleteItems(['item-999']);
-plugin.updateMeta({ title: 'Test Study Set (Playground)' });
-log('CRUD smoke: saveItems, deleteItems, updateMeta sent (no-op without host)', 'inf');
+log(`isStandalone()=${plugin.isStandalone()}  -  waiting for onInit...`, 'inf');

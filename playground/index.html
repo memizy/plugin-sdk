@@ -3,163 +3,344 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Memizy Plugin SDK — Playground</title>
+    <title>Memizy Plugin SDK &mdash; Playground Editor</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: #f3f4f6;
-        color: #111827;
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 32px 16px 80px;
+      :root {
+        --orange:#FF6B00; --bg:#f1f5f9; --surface:#fff; --surface2:#f8fafc;
+        --border:#e2e8f0; --text:#0f172a; --muted:#64748b;
+        --green:#16a34a; --red:#dc2626; --blue:#2563eb; --purple:#7c3aed; --amber:#d97706;
+        --b0:#e2e8f0; --b1:#fde68a; --b2:#86efac; --b3:#6ee7b7; --b4:#34d399;
+        --radius:12px; --shadow:0 2px 12px rgba(0,0,0,.07);
       }
-      header {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 32px;
-      }
-      header h1 { font-size: 1.5rem; font-weight: 700; }
-      header .badge {
-        background: #FF6B00;
-        color: #fff;
-        font-size: 0.7rem;
-        font-weight: 600;
-        padding: 2px 8px;
-        border-radius: 9999px;
-        letter-spacing: 0.04em;
-      }
-
-      #card-area {
-        width: 100%;
-        max-width: 640px;
-        background: #fff;
-        border-radius: 16px;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-        padding: 32px;
-        min-height: 200px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        margin-bottom: 24px;
-      }
-      #card-area .waiting {
-        font-size: 2rem;
-        margin-bottom: 12px;
-      }
-      #card-area .subtitle {
-        color: #6b7280;
-        font-size: 0.9rem;
-      }
-      #item-id   { font-size: 0.75rem; color: #9ca3af; margin-top: 8px; }
-      #item-type { font-size: 0.75rem; font-weight: 600; color: #FF6B00; margin-bottom: 12px; }
-      #item-question { font-size: 1.3rem; font-weight: 600; line-height: 1.4; }
-      #item-answer { font-size: 1rem; color: #374151; margin-top: 16px; padding: 12px; background: #f9fafb; border-radius: 8px; width: 100%; display: none; }
-
-      .controls {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        max-width: 640px;
-        width: 100%;
-        margin-bottom: 24px;
-        justify-content: center;
-      }
-      button {
-        padding: 10px 18px;
-        border: none;
-        border-radius: 8px;
-        font-size: 0.875rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: opacity 0.15s;
-      }
-      button:hover { opacity: 0.85; }
-      button:disabled { opacity: 0.4; pointer-events: none; }
-      .btn-correct   { background: #22c55e; color: #fff; }
-      .btn-wrong     { background: #ef4444; color: #fff; }
-      .btn-skip      { background: #e5e7eb; color: #374151; }
-      .btn-reveal    { background: #6366f1; color: #fff; }
-      .btn-next      { background: #FF6B00; color: #fff; }
-      .btn-progress  { background: #0ea5e9; color: #fff; }
-      .btn-exit      { background: #374151; color: #fff; }
-      .btn-restart   { background: #10b981; color: #fff; }
-      .btn-mock      { background: #a855f7; color: #fff; }
-      .btn-asset     { background: #f59e0b; color: #fff; }
-
-      #progress-panel {
-        width: 100%;
-        max-width: 640px;
-        margin-bottom: 24px;
-        display: none;
-      }
-      #progress-panel h2 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
-      #progress-panel pre {
-        background: #1e293b;
-        color: #e2e8f0;
-        padding: 16px;
-        border-radius: 10px;
-        font-size: 0.78rem;
-        overflow-x: auto;
-        line-height: 1.6;
-      }
-
-      #console {
-        width: 100%;
-        max-width: 640px;
-        background: #1e293b;
-        color: #94a3b8;
-        border-radius: 10px;
-        padding: 16px;
-        font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-        font-size: 0.78rem;
-        line-height: 1.8;
-        max-height: 260px;
-        overflow-y: auto;
-      }
-      #console .log-ts  { color: #475569; margin-right: 8px; }
-      #console .log-ok  { color: #86efac; }
-      #console .log-err { color: #fca5a5; }
-      #console .log-inf { color: #7dd3fc; }
+      body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 16px 100px; gap:20px; }
+      header { display:flex; align-items:center; gap:10px; width:100%; max-width:780px; }
+      header h1 { font-size:1.3rem; font-weight:800; letter-spacing:-.3px; }
+      .badge { font-size:.68rem; font-weight:700; padding:2px 8px; border-radius:999px; letter-spacing:.04em; }
+      .b-orange { background:var(--orange); color:#fff; }
+      .b-green  { background:#dcfce7; color:#166534; }
+      .b-blue   { background:#dbeafe; color:#1e40af; }
+      .set-title-display { margin-left:auto; font-size:.8rem; color:var(--muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .tab-bar { display:flex; gap:4px; padding:4px; background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); width:100%; max-width:780px; }
+      .tab-bar button { flex:1; padding:8px 10px; border:none; border-radius:8px; background:transparent; color:var(--muted); font-size:.82rem; font-weight:600; cursor:pointer; transition:background .15s,color .15s; }
+      .tab-bar button:hover { background:var(--bg); color:var(--text); }
+      .tab-bar button.active { background:var(--orange); color:#fff; }
+      .tab-content { width:100%; max-width:780px; display:none; flex-direction:column; gap:16px; }
+      .tab-content.active { display:flex; }
+      #welcome-screen { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:40px 32px; text-align:center; width:100%; max-width:780px; }
+      #welcome-screen h2 { font-size:1.5rem; font-weight:800; margin-bottom:10px; }
+      #welcome-screen p  { color:var(--muted); margin-bottom:24px; line-height:1.6; }
+      .gear-hint { font-size:3rem; display:block; margin-bottom:16px; }
+      .welcome-actions { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+      .panel { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; }
+      .panel-title { font-size:.78rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:14px; }
+      #card-area { background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:36px 28px; min-height:240px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:10px; position:relative; }
+      .item-badge { font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:3px 10px; border-radius:999px; position:absolute; top:14px; left:14px; }
+      .item-badge.flashcard  { background:#ede9fe; color:#5b21b6; }
+      .item-badge.mcq-single { background:#dbeafe; color:#1e40af; }
+      .item-pos { position:absolute; top:14px; right:14px; font-size:.75rem; color:var(--muted); font-weight:600; }
+      .item-question { font-size:1.3rem; font-weight:700; line-height:1.45; max-width:560px; }
+      .item-answer { font-size:1rem; color:#374151; padding:14px 20px; background:var(--surface2); border-radius:10px; width:100%; max-width:560px; border-left:3px solid var(--green); display:none; text-align:left; }
+      #item-asset-img { max-width:280px; max-height:160px; border-radius:8px; object-fit:contain; margin-bottom:4px; display:none; }
+      .mcq-options { display:grid; grid-template-columns:1fr 1fr; gap:10px; width:100%; max-width:560px; margin-top:8px; }
+      .option-btn { padding:12px 14px; border:2px solid var(--border); border-radius:10px; background:var(--surface); font-size:.88rem; font-weight:500; cursor:pointer; transition:all .15s; text-align:left; display:flex; align-items:center; gap:8px; }
+      .option-btn:hover:not(:disabled) { border-color:var(--orange); background:#fff7ed; }
+      .option-btn:disabled { cursor:default; }
+      .option-btn.opt-correct { border-color:var(--green); background:#f0fdf4; color:var(--green); }
+      .option-btn.opt-wrong   { border-color:var(--red);   background:#fef2f2; color:var(--red); }
+      .opt-ltr { font-weight:800; font-size:.72rem; width:22px; height:22px; border-radius:5px; background:var(--bg); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+      .bucket-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; }
+      .bucket-bar span { font-size:.72rem; color:var(--muted); font-weight:600; }
+      .bdot { width:26px; height:10px; border-radius:999px; background:var(--border); border:1.5px solid transparent; transition:transform .2s; }
+      .bdot.b0 { background:var(--b0); } .bdot.b1 { background:var(--b1); } .bdot.b2 { background:var(--b2); }
+      .bdot.b3 { background:var(--b3); } .bdot.b4 { background:var(--b4); }
+      .bdot.cur { border-color:#0f172a; transform:scaleY(1.5); }
+      .controls-row { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+      .waiting { font-size:2rem; }
+      .waiting-label { color:var(--muted); font-size:.9rem; }
+      .set-meta-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+      .item-list { display:flex; flex-direction:column; gap:8px; }
+      .item-row { display:flex; align-items:center; gap:10px; padding:11px 14px; background:var(--surface2); border-radius:10px; border:1.5px solid var(--border); }
+      .irt { font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:2px 7px; border-radius:5px; flex-shrink:0; }
+      .irt.flashcard  { background:#ede9fe; color:#5b21b6; }
+      .irt.mcq-single { background:#dbeafe; color:#1e40af; }
+      .irq { flex:1; font-size:.86rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .bpill { font-size:.7rem; font-weight:600; padding:2px 7px; border-radius:5px; flex-shrink:0; }
+      .bp0 { background:var(--b0); }
+      .bp1 { background:var(--b1); }
+      .bp2 { background:var(--b2); color:#166534; }
+      .bp3 { background:var(--b3); color:#166534; }
+      .bp4 { background:var(--b4); color:#166534; }
+      .form-row { display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
+      .form-group { display:flex; flex-direction:column; gap:5px; flex:1; min-width:130px; }
+      .form-group label { font-size:.73rem; font-weight:600; color:var(--muted); }
+      .form-group input,.form-group textarea,.form-group select { padding:8px 11px; border:1.5px solid var(--border); border-radius:8px; font-size:.87rem; color:var(--text); background:var(--surface2); outline:none; font-family:inherit; resize:vertical; transition:border-color .15s; }
+      .form-group input:focus,.form-group textarea:focus,.form-group select:focus { border-color:var(--orange); background:#fff; }
+      .form-group textarea { min-height:60px; }
+      .mcq-opts-editor { display:flex; flex-direction:column; gap:6px; }
+      .mcq-opt-row { display:flex; gap:8px; align-items:center; }
+      .mcq-opt-row input[type="radio"] { width:16px; height:16px; accent-color:var(--green); flex-shrink:0; }
+      .mcq-opt-row .ol { font-size:.73rem; font-weight:700; color:var(--muted); width:14px; flex-shrink:0; }
+      .mcq-opt-row input[type="text"] { flex:1; padding:7px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:.84rem; background:var(--surface2); color:var(--text); outline:none; }
+      .mcq-opt-row input[type="text"]:focus { border-color:var(--orange); background:#fff; }
+      .asset-upload-row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+      .asset-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
+      .asset-card { background:var(--surface2); border:1.5px solid var(--border); border-radius:10px; overflow:hidden; display:flex; flex-direction:column; }
+      .asset-card .athumb { height:90px; background:var(--bg); display:flex; align-items:center; justify-content:center; overflow:hidden; }
+      .asset-card .athumb img { width:100%; height:100%; object-fit:contain; }
+      .asset-card .ainfo { padding:8px 10px; display:flex; flex-direction:column; gap:5px; }
+      .asset-card .akey { font-size:.72rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .asset-card .aact { display:flex; gap:5px; }
+      #assets-empty { color:var(--muted); font-size:.86rem; text-align:center; padding:20px 0; }
+      #progress-table { width:100%; border-collapse:collapse; font-size:.81rem; }
+      #progress-table th { text-align:left; padding:8px 12px; background:var(--bg); color:var(--muted); font-weight:600; border-bottom:1px solid var(--border); font-size:.73rem; text-transform:uppercase; letter-spacing:.05em; }
+      #progress-table td { padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+      #progress-table tr:last-child td { border-bottom:none; }
+      #progress-table tr:hover td { background:var(--surface2); }
+      .bb { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:6px; font-weight:700; font-size:.78rem; }
+      .bb0 { background:var(--b0); } .bb1 { background:var(--b1); }
+      .bb2 { background:var(--b2); color:#166534; } .bb3 { background:var(--b3); color:#166534; } .bb4 { background:var(--b4); color:#166534; }
+      .btn { padding:9px 18px; border:none; border-radius:8px; font-size:.85rem; font-weight:600; cursor:pointer; transition:opacity .15s,background .15s; white-space:nowrap; line-height:1; }
+      .btn:hover:not(:disabled) { opacity:.85; }
+      .btn:disabled { opacity:.35; cursor:not-allowed; }
+      .btn-primary   { background:var(--orange); color:#fff; }
+      .btn-secondary { background:var(--bg); color:var(--text); border:1.5px solid var(--border); }
+      .btn-success   { background:var(--green); color:#fff; }
+      .btn-danger    { background:var(--red); color:#fff; }
+      .btn-ghost     { background:transparent; color:var(--muted); border:1.5px solid var(--border); }
+      .btn-purple    { background:var(--purple); color:#fff; }
+      .btn-amber     { background:var(--amber); color:#fff; }
+      .btn-blue      { background:var(--blue); color:#fff; }
+      .btn-sm        { padding:6px 12px; font-size:.77rem; border-radius:6px; }
+      #console-panel { width:100%; max-width:780px; background:#0f172a; border-radius:var(--radius); padding:14px 16px; font-family:'Cascadia Code','Fira Code',Consolas,monospace; font-size:.75rem; line-height:1.8; max-height:200px; overflow-y:auto; color:#94a3b8; }
+      #console-panel .log-ts   { color:#475569; margin-right:8px; }
+      #console-panel .log-ok   { color:#86efac; }
+      #console-panel .log-err  { color:#fca5a5; }
+      #console-panel .log-inf  { color:#7dd3fc; }
+      #console-panel .log-warn { color:#fde68a; }
+      .flex-gap { display:flex; gap:8px; flex-wrap:wrap; }
+      .text-muted { color:var(--muted); font-size:.81rem; }
+      .w100 { width:100%; }
+      .hidden { display:none !important; }
+      code { font-family:'Cascadia Code',Consolas,monospace; font-size:.82em; background:var(--bg); padding:1px 5px; border-radius:4px; }
     </style>
   </head>
   <body>
+
     <header>
-      <h1>🚀 Plugin SDK Playground</h1>
-      <span class="badge">v0.2.0</span>
+      <h1>&#128640; Memizy Plugin Playground</h1>
+      <span class="badge b-orange">v0.2.0</span>
+      <span class="badge b-green" id="badge-standalone">&#9679; Standalone</span>
+      <span class="set-title-display" id="header-set-title">No set loaded</span>
     </header>
 
-    <div id="card-area">
-      <div class="waiting">⏳</div>
-      <div class="subtitle">Waiting for session to initialise…</div>
+    <div id="welcome-screen">
+      <span class="gear-hint">&#9881;&#65039;</span>
+      <h2>No study set loaded</h2>
+      <p>
+        Use the <strong>&#9881; gear button</strong> (bottom-right) to import a <code>.oqse</code> ZIP or <code>.oqse.json</code>,<br/>
+        or click below to load a built-in sample set and explore all SDK features.
+      </p>
+      <div class="welcome-actions">
+        <button class="btn btn-primary" id="btn-load-samples">&#128218; Load Sample Set</button>
+        <button class="btn btn-secondary" id="btn-new-empty">&#10133; Start with Empty Set</button>
+      </div>
     </div>
 
-    <div class="controls">
-      <button id="btn-reveal"   class="btn-reveal"   disabled>Reveal answer</button>
-      <button id="btn-correct"  class="btn-correct"  disabled>✓ Correct</button>
-      <button id="btn-wrong"    class="btn-wrong"    disabled>✗ Wrong</button>
-      <button id="btn-skip"     class="btn-skip"     disabled>Skip →</button>
-      <button id="btn-next"     class="btn-next"     disabled>Next item</button>
+    <div class="tab-bar hidden" id="tab-bar">
+      <button class="tab active" data-tab="study">&#9654; Study</button>
+      <button class="tab" data-tab="edit">&#9999;&#65039; Edit Set</button>
+      <button class="tab" data-tab="assets">&#128444;&#65039; Assets</button>
+      <button class="tab" data-tab="progress">&#128202; Progress</button>
     </div>
 
-    <div class="controls">
-      <button id="btn-mock"     class="btn-mock">▶ Trigger mock now</button>
-      <button id="btn-asset"    class="btn-asset">⬆ Upload test asset</button>
-      <button id="btn-progress" class="btn-progress">📊 Print progress</button>
-      <button id="btn-exit"     class="btn-exit"    disabled>⏹ Exit (score 99)</button>      <button id="btn-restart"  class="btn-restart" disabled>🔄 Restart Session</button>    </div>
+    <!-- STUDY -->
+    <div class="tab-content hidden" id="tab-study">
 
-    <div id="progress-panel">
-      <h2>Progress snapshot</h2>
-      <pre id="progress-json"></pre>
+      <div id="card-area">
+        <div class="waiting">&#9203;</div>
+        <div class="waiting-label">Waiting for session&hellip;</div>
+      </div>
+
+      <div class="panel" style="padding:14px 20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span class="panel-title" style="margin-bottom:0">Leitner Buckets</span>
+          <span class="text-muted" id="session-stats">0 answered</span>
+        </div>
+        <div class="bucket-bar">
+          <span>B0</span><div class="bdot b0" id="bdot0"></div>
+          <span>B1</span><div class="bdot b1" id="bdot1"></div>
+          <span>B2</span><div class="bdot b2" id="bdot2"></div>
+          <span>B3</span><div class="bdot b3" id="bdot3"></div>
+          <span>B4</span><div class="bdot b4" id="bdot4"></div>
+          <span id="blabel" class="text-muted" style="margin-left:8px;font-size:.72rem;"></span>
+        </div>
+      </div>
+
+      <div class="controls-row">
+        <button class="btn btn-purple"    id="btn-reveal"  disabled>&#128065; Reveal Answer</button>
+        <button class="btn btn-success"   id="btn-correct" disabled>&#10003; Correct</button>
+        <button class="btn btn-danger"    id="btn-wrong"   disabled>&#10007; Wrong</button>
+        <button class="btn btn-ghost"     id="btn-skip"    disabled>&#8629; Skip</button>
+        <button class="btn btn-secondary" id="btn-next"    disabled>Next &rarr;</button>
+      </div>
+      <div class="controls-row">
+        <button class="btn btn-ghost btn-sm"   id="btn-exit"        disabled>&#9209; Exit Session</button>
+        <button class="btn btn-success btn-sm" id="btn-restart"     disabled>&#8635; Restart</button>
+        <button class="btn btn-amber btn-sm"   id="btn-resize-test">&#8597; requestResize()</button>
+        <button class="btn btn-ghost btn-sm"   id="btn-report-err" >&#9888; reportError()</button>
+      </div>
+
     </div>
 
-    <div id="console">
-      <span class="log-inf">▶ SDK loaded — open DevTools console for [memizy-plugin-sdk] logs.</span><br/>
+    <!-- EDIT -->
+    <div class="tab-content hidden" id="tab-edit">
+
+      <div class="panel">
+        <div class="panel-title">Set Metadata</div>
+        <div class="set-meta-row">
+          <div class="form-group" style="flex:2">
+            <label>Title</label>
+            <input type="text" id="input-set-title" placeholder="My Study Set" />
+          </div>
+          <div class="form-group" style="flex:3">
+            <label>Description</label>
+            <input type="text" id="input-set-desc" placeholder="Short description&hellip;" />
+          </div>
+          <button class="btn btn-primary" id="btn-save-meta">&#128190; Save Meta</button>
+        </div>
+        <div style="margin-top:10px;" class="flex-gap">
+          <button class="btn btn-secondary btn-sm" id="btn-export-json">&#128228; Export .oqse.json</button>
+          <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+            &#128194; Import .oqse.json <input type="file" id="input-import-json" accept=".json,.oqse" hidden />
+          </label>
+          <span class="text-muted" id="edit-item-count"></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Items (<span id="items-count">0</span>)</div>
+        <div id="item-list">
+          <div class="text-muted" style="text-align:center;padding:20px;">No items yet.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Add New Item</div>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="form-row">
+            <div class="form-group" style="max-width:190px;">
+              <label>Item Type</label>
+              <select id="select-item-type">
+                <option value="flashcard">Flashcard</option>
+                <option value="mcq-single">MCQ &mdash; Single answer</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:3;">
+              <label>Question</label>
+              <input type="text" id="input-item-question" placeholder="Enter question text&hellip;" />
+            </div>
+          </div>
+
+          <div id="fc-fields">
+            <div class="form-group w100">
+              <label>Answer</label>
+              <textarea id="input-fc-answer" placeholder="Enter the answer&hellip;" rows="2"></textarea>
+            </div>
+          </div>
+
+          <div id="mcq-fields" class="hidden">
+            <div class="form-group">
+              <label>Options <span class="text-muted">(&#128308; = correct answer)</span></label>
+              <div class="mcq-opts-editor">
+                <div class="mcq-opt-row"><span class="ol">A</span><input type="radio" name="copt" value="0" checked /><input type="text" class="mopt" placeholder="Option A" /></div>
+                <div class="mcq-opt-row"><span class="ol">B</span><input type="radio" name="copt" value="1" /><input type="text" class="mopt" placeholder="Option B" /></div>
+                <div class="mcq-opt-row"><span class="ol">C</span><input type="radio" name="copt" value="2" /><input type="text" class="mopt" placeholder="Option C (optional)" /></div>
+                <div class="mcq-opt-row"><span class="ol">D</span><input type="radio" name="copt" value="3" /><input type="text" class="mopt" placeholder="Option D (optional)" /></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Image asset key <span class="text-muted">(optional &mdash; upload in Assets tab first)</span></label>
+            <input type="text" id="input-item-asset" placeholder="assets/image.png" />
+          </div>
+
+          <div class="flex-gap">
+            <button class="btn btn-primary" id="btn-add-item">&#10133; Add Item</button>
+            <button class="btn btn-ghost btn-sm" id="btn-clear-form">Clear</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ASSETS -->
+    <div class="tab-content hidden" id="tab-assets">
+
+      <div class="panel">
+        <div class="panel-title">Upload Asset (uploadAsset)</div>
+        <div class="asset-upload-row">
+          <div class="form-group" style="flex:1;min-width:150px;">
+            <label>Key / path</label>
+            <input type="text" id="input-asset-key" placeholder="assets/image.png" />
+          </div>
+          <div class="form-group" style="flex:2;min-width:180px;">
+            <label>File</label>
+            <input type="file" id="input-asset-file" accept="image/*,audio/*,video/*" style="padding:6px;" />
+          </div>
+          <button class="btn btn-primary" id="btn-upload-asset">&#8679; Upload</button>
+        </div>
+        <p class="text-muted" style="margin-top:10px;font-size:.77rem;">
+          Standalone: stored in IndexedDB, resolved to <code>blob:</code> URLs via <code>uploadAsset()</code>.<br/>
+          In a host frame this would proxy through <code>STORE_ASSET &rarr; ASSET_STORED</code>.
+          Use <code>getRawAsset(key)</code> to retrieve File/Blob back.
+        </p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Stored Assets</div>
+        <div id="asset-grid" class="asset-grid">
+          <div id="assets-empty">No assets uploaded yet.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- PROGRESS -->
+    <div class="tab-content hidden" id="tab-progress">
+
+      <div class="panel">
+        <div class="panel-title">Session Progress (getProgress)</div>
+        <div class="flex-gap" style="margin-bottom:14px;">
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-progress">&#8635; Refresh</button>
+          <button class="btn btn-blue btn-sm"      id="btn-export-oqsep">&#128228; Export .oqsep</button>
+          <button class="btn btn-ghost btn-sm"     id="btn-sync-all">&#8593; syncProgress() bulk</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table id="progress-table">
+            <thead>
+              <tr>
+                <th>Item ID</th>
+                <th>Question</th>
+                <th>Bucket</th>
+                <th>Attempts</th>
+                <th>Streak</th>
+                <th>Last Answer</th>
+                <th>Next Review</th>
+              </tr>
+            </thead>
+            <tbody id="progress-tbody">
+              <tr><td colspan="7" id="progress-empty" style="text-align:center;color:#64748b;padding:20px;">No progress yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <div id="console-panel">
+      <span class="log-inf">&#9654; Memizy Plugin SDK v0.2.0 &mdash; playground loaded. Use the &#9881; gear button or click &quot;Load Sample Set&quot;.</span><br/>
     </div>
 
     <script type="module" src="./main.ts"></script>

@@ -41,7 +41,7 @@ export function defaultLeitnerReducer(
   };
 
   const oldBucket = base.bucket;
-  const newBucket: Bucket = isCorrect ? (Math.min(oldBucket + 1, 4) as Bucket) : 1;
+  const newBucket: Bucket = isCorrect ? (Math.min(oldBucket < 1 ? 2 : oldBucket + 1, 4) as Bucket) : 1;
 
   const intervalMs = LEITNER_INTERVALS_DAYS[newBucket] * 86_400_000;
   const nextReviewAt = new Date(Date.now() + intervalMs).toISOString();
