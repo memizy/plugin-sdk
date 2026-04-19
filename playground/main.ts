@@ -14,33 +14,62 @@ import { MemizyPlugin } from '../src/index';
 import type { OQSEItem, InitSessionPayload, OQSEMeta, OQSETextToken } from '../src/index';
 
 type SetMetaState = Partial<OQSEMeta>;
-type PlaygroundItem = {
-  id: string;
-  type: string;
-  [key: string]: unknown;
-  question?: string;
-  answer?: string;
-  options?: string[];
-  correct?: number;
-  assetKey?: string;
-  assets?: Record<string, { value: string }>;
-};
+
+type FlashcardItem = Extract<OQSEItem, { type: 'flashcard' }>;
+type McqSingleItem = Extract<OQSEItem, { type: 'mcq-single' }>;
+
+function isFlashcard(item: OQSEItem): item is FlashcardItem {
+  return item.type === 'flashcard';
+}
+
+function isMcqSingle(item: OQSEItem): item is McqSingleItem {
+  return item.type === 'mcq-single';
+}
+
+function getPromptText(item: OQSEItem): string {
+  if (isFlashcard(item)) return item.front;
+  if (isMcqSingle(item)) return item.question;
+  return item.type;
+}
+
+function getPlaygroundAssetKey(item: OQSEItem): string {
+  const candidate = item.appSpecific?.['playgroundAssetKey'];
+  return typeof candidate === 'string' ? candidate : '';
+}
 
 // -----------------------------------------------------------------------------
 // Sample data (loaded on "Load Sample Set" click)
 // -----------------------------------------------------------------------------
 
-const SAMPLE_ITEMS: PlaygroundItem[] = [
+const SAMPLE_ITEMS: OQSEItem[] = [
   {
     id: 'item-001',
     type: 'flashcard',
-    question: 'Complete this sentence: The powerhouse of the cell is <blank:powerhouse />. Visual: <asset:demo-image />',
-    answer: 'The mitochondrion.',
+    front: 'Complete this sentence: The powerhouse of the cell is <blank:powerhouse />. Visual: <asset:demo-image />',
+    back: 'The mitochondrion.',
+    appSpecific: { playgroundAssetKey: 'demo-image' },
   },
-  { id: 'item-002', type: 'flashcard', question: 'Capital of Australia?',                   answer: 'Canberra (not Sydney!).' },
-  { id: 'item-003', type: 'mcq-single', question: 'Which planet is closest to the Sun?',   options: ['Venus', 'Mercury', 'Earth', 'Mars'], correct: 1 },
-  { id: 'item-004', type: 'mcq-single', question: 'What does HTTP stand for?',             options: ['HyperText Transfer Protocol', 'Hyper Transfer Text Protocol', 'High Transfer Tech Protocol', 'HyperText Transport Protocol'], correct: 0 },
-  { id: 'item-005', type: 'flashcard', question: 'Who wrote "The Republic"?',               answer: 'Plato.' },
+  { id: 'item-002', type: 'flashcard', front: 'Capital of Australia?', back: 'Canberra (not Sydney!).' },
+  {
+    id: 'item-003',
+    type: 'mcq-single',
+    question: 'Which planet is closest to the Sun?',
+    options: ['Venus', 'Mercury', 'Earth', 'Mars'],
+    correctIndex: 1,
+  },
+  {
+    id: 'item-004',
+    type: 'mcq-single',
+    question: 'What does HTTP stand for?',
+    options: [
+      'HyperText Transfer Protocol',
+      'Hyper Transfer Text Protocol',
+      'High Transfer Tech Protocol',
+      'HyperText Transport Protocol',
+    ],
+    correctIndex: 0,
+  },
+  { id: 'item-005', type: 'flashcard', front: 'Who wrote "The Republic"?', back: 'Plato.' },
 ];
 const SAMPLE_META: SetMetaState = {
   title: 'Sample Study Set',
@@ -73,7 +102,7 @@ const plugin = new MemizyPlugin({
 // State
 // -----------------------------------------------------------------------------
 
-let items: PlaygroundItem[] = [];
+let items: OQSEItem[] = [];
 let setMeta: SetMetaState = {};
 let cursor                = 0;
 let answered              = 0;
@@ -167,8 +196,8 @@ function renderHighCeiling(rawText: string): void {
   $('tp-high-output').innerHTML = mapTokensToHtml(tokens);
 }
 
-function setTextDemoFromCurrentItem(item: PlaygroundItem): void {
-  const rawText = String((item as { question?: unknown }).question ?? '');
+function setTextDemoFromCurrentItem(item: OQSEItem): void {
+  const rawText = getPromptText(item);
   $<HTMLTextAreaElement>('tp-input').value = rawText;
   renderLowFloor(rawText, true);
   renderHighCeiling(rawText);
@@ -180,7 +209,7 @@ function setTextDemoFromCurrentItem(item: PlaygroundItem): void {
 
 $('btn-load-samples').addEventListener('click', async () => {
   log('Loading sample set via saveItems() + updateMeta()...', 'inf');
-  await plugin.saveItems(SAMPLE_ITEMS as unknown as OQSEItem[]);
+  await plugin.saveItems(SAMPLE_ITEMS);
   await plugin.updateMeta(SAMPLE_META);
   log('Sample set saved  -  reloading to trigger onInit...', 'ok');
   setTimeout(() => location.reload(), 350);
@@ -226,7 +255,7 @@ function revealUI(): void {
 
 const cardArea        = $('card-area');
 
-function updateBucketBar(item: PlaygroundItem): void {
+function updateBucketBar(item: OQSEItem): void {
   const prog   = plugin.getProgress();
   const rec    = prog[item.id];
   const bucket = rec?.bucket ?? 0;
@@ -238,16 +267,15 @@ function updateBucketBar(item: PlaygroundItem): void {
   $('session-stats').textContent = `${answered} answered`;
 }
 
-function renderFlashcard(item: PlaygroundItem): void {
-  const answer = String((item as { answer?: unknown }).answer ?? '(no answer)');
+function renderFlashcard(item: FlashcardItem): void {
   cardArea.innerHTML = `
     <span class="item-badge flashcard">Flashcard</span>
     <span class="item-pos">${cursor + 1} / ${items.length}</span>
-    <div class="item-question">${esc(String((item as {question?:unknown}).question ?? ' - '))}</div>
-    <div class="item-answer" id="fc-answer">${esc(answer)}</div>
+    <div class="item-question">${esc(item.front)}</div>
+    <div class="item-answer" id="fc-answer">${esc(item.back)}</div>
   `;
 
-  const assetKey = String((item as {assetKey?:unknown}).assetKey ?? '');
+  const assetKey = getPlaygroundAssetKey(item);
   if (assetKey && assetCache[assetKey]) {
     const img = document.createElement('img');
     img.id = 'item-asset-img';
@@ -262,9 +290,9 @@ function renderFlashcard(item: PlaygroundItem): void {
   $<HTMLButtonElement>('btn-next').disabled    = true;
 }
 
-function renderMCQ(item: PlaygroundItem): void {
-  const opts    = ((item as {options?:unknown}).options as string[]) ?? [];
-  const correct = Number((item as {correct?:unknown}).correct ?? 0);
+function renderMCQ(item: McqSingleItem): void {
+  const opts    = item.options;
+  const correct = item.correctIndex;
   const letters = ['A','B','C','D'];
   let optsHtml  = '';
   opts.forEach((o, i) => {
@@ -274,7 +302,7 @@ function renderMCQ(item: PlaygroundItem): void {
   cardArea.innerHTML = `
     <span class="item-badge mcq-single">MCQ</span>
     <span class="item-pos">${cursor + 1} / ${items.length}</span>
-    <div class="item-question">${esc(String((item as {question?:unknown}).question ?? ' - '))}</div>
+    <div class="item-question">${esc(item.question)}</div>
     <div class="mcq-options">${optsHtml}</div>
   `;
 
@@ -302,12 +330,12 @@ function renderMCQ(item: PlaygroundItem): void {
   $<HTMLButtonElement>('btn-next').disabled    = true;
 }
 
-function renderItem(item: PlaygroundItem): void {
+function renderItem(item: OQSEItem): void {
   plugin.startItemTimer(item.id);
-  if (item.type === 'flashcard')  renderFlashcard(item);
-  else if (item.type === 'mcq-single') renderMCQ(item);
+  if (isFlashcard(item)) renderFlashcard(item);
+  else if (isMcqSingle(item)) renderMCQ(item);
   else {
-    cardArea.innerHTML = `<div class="item-question">${esc(item.type)}: ${esc(String((item as {question?:unknown}).question ?? ' - '))}</div>`;
+    cardArea.innerHTML = `<div class="item-question">${esc(item.type)}: ${esc(getPromptText(item))}</div>`;
   }
   setTextDemoFromCurrentItem(item);
   updateBucketBar(item);
@@ -439,11 +467,11 @@ function renderItemList(): void {
 
   list.innerHTML = items.map(item => {
     const bucket = prog[item.id]?.bucket ?? 0;
-    const q = esc(String((item as {question?:unknown}).question ?? ' - ')).slice(0, 80);
+    const q = esc(getPromptText(item)).slice(0, 80);
     return `
       <div class="item-row">
         <span class="irt ${item.type}">${esc(item.type)}</span>
-        <span class="irq" title="${esc(String((item as {question?:unknown}).question ?? ' - '))}">${q}</span>
+        <span class="irq" title="${esc(getPromptText(item))}">${q}</span>
         <span class="bpill bp${bucket}">B${bucket}</span>
         <button class="btn btn-ghost btn-sm" data-del="${esc(item.id)}">&times;</button>
       </div>`;
@@ -494,19 +522,32 @@ $('btn-add-item').addEventListener('click', () => {
   const assetKey = ($<HTMLInputElement> ('input-item-asset')).value.trim();
   if (!question) { log('Question is empty!', 'err'); return; }
 
-  let newItem: PlaygroundItem;
+  let newItem: OQSEItem;
   if (type === 'flashcard') {
     const answer = ($<HTMLTextAreaElement>('input-fc-answer')).value.trim();
     if (!answer) { log('Answer is empty!', 'err'); return; }
-    newItem = { id: uid(), type: 'flashcard', question, answer, ...(assetKey ? { assetKey } : {}) };
+    newItem = {
+      id: uid(),
+      type: 'flashcard',
+      front: question,
+      back: answer,
+      ...(assetKey ? { appSpecific: { playgroundAssetKey: assetKey } } : {}),
+    };
   } else {
     const opts = Array.from(document.querySelectorAll<HTMLInputElement>('.mopt')).map(i => i.value.trim()).filter(Boolean);
     if (opts.length < 2) { log('At least 2 MCQ options required!', 'err'); return; }
     const correct = Number((document.querySelector<HTMLInputElement>('input[name="copt"]:checked'))?.value ?? 0);
-    newItem = { id: uid(), type: 'mcq-single', question, options: opts, correct, ...(assetKey ? { assetKey } : {}) };
+    newItem = {
+      id: uid(),
+      type: 'mcq-single',
+      question,
+      options: opts,
+      correctIndex: correct,
+      ...(assetKey ? { appSpecific: { playgroundAssetKey: assetKey } } : {}),
+    };
   }
 
-  plugin.saveItems([newItem as unknown as OQSEItem]);
+  plugin.saveItems([newItem]);
   items.push(newItem);
   log(`saveItems([{ id: "${newItem.id}", type: "${type}", ... }])`, 'ok');
   renderItemList();
@@ -535,10 +576,10 @@ $<HTMLInputElement>('input-import-json').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const data = JSON.parse(String(reader.result)) as { meta?: SetMetaState; items?: PlaygroundItem[] };
+      const data = JSON.parse(String(reader.result)) as { meta?: SetMetaState; items?: OQSEItem[] };
       const importedItems = data.items ?? [];
       const importedMeta  = data.meta  ?? {};
-      plugin.saveItems(importedItems as unknown as OQSEItem[]);
+      plugin.saveItems(importedItems);
       plugin.updateMeta(importedMeta);
       log(`Imported ${importedItems.length} items from ${file.name}. Reloading...`, 'ok');
       setTimeout(() => location.reload(), 400);
@@ -638,7 +679,7 @@ function renderProgressTable(): void {
   tbody.innerHTML = keys.map(id => {
     const r   = prog[id]!;
     const itm = items.find(i => i.id === id);
-    const q   = esc(String((itm as {question?:unknown} | undefined)?.question ?? id)).slice(0, 50);
+    const q   = esc(itm ? getPromptText(itm) : id).slice(0, 50);
     return `
       <tr>
         <td><code>${esc(id)}</code></td>
@@ -676,7 +717,7 @@ $('btn-sync-all').addEventListener('click', () => {
 
 plugin
   .onInit((payload: InitSessionPayload) => {
-    items    = [...payload.items] as unknown as PlaygroundItem[];
+    items    = [...payload.items];
     setMeta  = { ...setMeta };
     cursor   = 0;
     answered = 0;
