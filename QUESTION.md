@@ -5,6 +5,7 @@ Doplnit tam jména aplikace a některý ty odkazy
 Sourci maj zas dvojižě uveděný odkaz ale možná je to správně aby to bylo proklikatelný
 
 Budou pluginy moci přistupovat k dalším url parametrům? jako edit parametr
+ten corne rv parametru a ty divné názvy parametrů
 
 Ještě vymyslet ve specifikaci tu distribuci jestli tam chci mít ten exmple s ítím co je tam teď
 

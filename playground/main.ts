@@ -121,7 +121,6 @@ let items: OQSEItem[] = [];
 let setMeta: SetMetaState = {};
 let cursor                = 0;
 let answered              = 0;
-const answeredItemIds = new Set<string>();
 /** blobURL cache: key -> blob: URL */
 const assetCache: Record<string, string> = {};
 
@@ -383,7 +382,6 @@ function renderMCQ(item: McqSingleItem): void {
       }
       cardArea.querySelectorAll<HTMLButtonElement>('.option-btn').forEach(b => b.disabled = true);
       plugin.answer(item.id, isCorrect, { confidence: isCorrect ? 4 : 1 });
-      answeredItemIds.add(item.id);
       answered++;
       updateBucketBar(item);
       log(`MCQ answer(${item.id}, ${isCorrect})`, isCorrect ? 'ok' : 'err');
@@ -416,17 +414,6 @@ function moveNext(): void {
   }
 
   const progress = plugin.getProgress();
-  if (answeredItemIds.size >= items.length && answered >= items.length) {
-    cardArea.innerHTML = `
-      <div class="waiting">:tada:</div>
-      <div class="waiting-label">Great work: all ${items.length} items were answered at least once.</div>
-    `;
-    enableSession(false);
-    $<HTMLButtonElement>('btn-restart').disabled = false;
-    log('Adaptive session complete. All items were answered at least once.', 'ok');
-    return;
-  }
-
   const ranked = items
     .map((item, index) => ({ index, bucket: progress[item.id]?.bucket ?? 0 }))
     .sort((a, b) => a.bucket - b.bucket);
@@ -456,7 +443,6 @@ $('btn-reveal').addEventListener('click', () => {
 $('btn-correct').addEventListener('click', () => {
   const item = items[cursor]; if (!item) return;
   plugin.answer(item.id, true, { confidence: 4 });
-  answeredItemIds.add(item.id);
   answered++;
   updateBucketBar(item);
   log(`answer(${item.id}, correct)`, 'ok');
@@ -466,7 +452,6 @@ $('btn-correct').addEventListener('click', () => {
 $('btn-wrong').addEventListener('click', () => {
   const item = items[cursor]; if (!item) return;
   plugin.answer(item.id, false, { confidence: 1 });
-  answeredItemIds.add(item.id);
   answered++;
   updateBucketBar(item);
   log(`answer(${item.id}, wrong)`, 'err');
@@ -485,7 +470,6 @@ $('btn-next').addEventListener('click', () => moveNext());
 $('btn-restart').addEventListener('click', () => {
   cursor  = 0;
   answered = 0;
-  answeredItemIds.clear();
   $<HTMLButtonElement>('btn-restart').disabled = true;
   enableSession(true);
   if (items[0]) renderItem(items[0]);
@@ -808,7 +792,6 @@ plugin
     setMeta  = { ...setMeta };
     cursor   = 0;
     answered = 0;
-    answeredItemIds.clear();
 
     // Resolve set-level assets into cache
     Object.entries(payload.assets ?? {}).forEach(([k, mo]) => {
@@ -830,7 +813,7 @@ plugin
     setMeta.title = title;
 
     log(`onInit: ${items.length} items  |  isStandalone=${plugin.isStandalone()}  |  locale=${payload.settings?.locale ?? 'n/a'}`, 'ok');
-    log('Adaptive mode enabled (completion after each item gets at least one answer).', 'inf');
+    log('Adaptive mode enabled (continuous loop).', 'inf');
 
     if (items.length === 0) {
       revealUI();
