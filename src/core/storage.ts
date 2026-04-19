@@ -8,8 +8,7 @@
  *   assets_data   — key = asset_key (string) → File | Blob
  */
 
-import type { OQSEItem, OQSEMeta } from '../types/oqse';
-import type { ProgressRecord } from '../types/oqsep';
+import type { OQSEItem, OQSEMeta, ProgressRecord } from '@memizy/oqse';
 
 const DB_NAME      = 'MemizyStandaloneDB';
 const DB_VERSION   = 1;

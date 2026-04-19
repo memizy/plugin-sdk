@@ -13,6 +13,7 @@
 - [SDK Reference](#sdk-reference)
   - [Installation](#installation)
   - [API](#api)
+  - [Text Processing API](#text-processing-api)
   - [Usage examples](#usage-examples)
 - [Project Setup Guide](#project-setup-guide)
   - [Scaffolding a new plugin](#scaffolding-a-new-plugin)
@@ -371,8 +372,10 @@ Sent for non-fatal errors that the Host should log. Plugin MUST continue running
 
 The `@memizy/plugin-sdk` is a zero-dependency TypeScript library that abstracts the full message protocol. It is the recommended (and for published plugins, required) way to build Memizy plugins.
 
-**Version:** `0.2.0`  
+**Version:** `0.2.1`  
 **Source:** [src/index.ts](src/index.ts)
+
+Starting with `0.2.1`, the SDK sources OQSE and OQSEP model types from the external package `@memizy/oqse`.
 
 ### Installation
 
@@ -385,7 +388,7 @@ Or use the CDN build directly in a static HTML plugin via jsDelivr:
 
 ```html
 <script type="module">
-  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk@0.2.0/dist/memizy-sdk.js';
+  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk@0.2.1/dist/memizy-sdk.js';
 </script>
 ```
 
@@ -582,6 +585,42 @@ plugin.clearItemTimer(itemId: string): this
 
 ---
 
+#### Text Processing API
+
+The SDK now exposes a **Low Floor, High Ceiling** text processing API.
+
+- `parseTextTokens(rawText)` gives structured tokens (`text`, `blank`, `asset`) for advanced custom renderers.
+- `renderHtml(rawText, options)` returns a basic HTML string for quick integration.
+
+```typescript
+// Parse raw text with <asset:key /> and <blank:key /> tags into typed tokens.
+plugin.parseTextTokens(rawText: string): OQSETextToken[]
+
+// Quick HTML rendering path.
+plugin.renderHtml(
+  rawText: string,
+  options?: {
+    markdownParser?: (text: string) => string | Promise<string>;
+    sanitizer?: (html: string) => string;
+  }
+): string
+```
+
+Example:
+
+```typescript
+const html = plugin.renderHtml(item.question, {
+  markdownParser: (text) => myMarkdown.parse(text),
+  sanitizer: (unsafeHtml) => DOMPurify.sanitize(unsafeHtml),
+});
+container.innerHTML = html;
+```
+
+> **Security (IoC):** `renderHtml()` intentionally returns basic HTML and does **not** enforce a sanitizer internally.
+> The plugin developer controls sanitization via `options.sanitizer`, so you can plug in your own security policy and tooling.
+
+---
+
 #### Development helpers
 
 ```typescript
@@ -694,7 +733,7 @@ async function loadModel(key: string) {
 <body>
 <div id="app"></div>
 <script type="module">
-  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk@0.2.0/dist/memizy-sdk.js';
+  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk@0.2.1/dist/memizy-sdk.js';
 
   const plugin = new MemizyPlugin({ id: 'https://my-domain.com/my-quiz', version: '1.0.0' });
 
@@ -777,7 +816,7 @@ npm run build
     "preview": "vite preview"
   },
   "dependencies": {
-    "@memizy/plugin-sdk": "^0.2.0"
+    "@memizy/plugin-sdk": "^0.2.1"
   },
   "devDependencies": {
     "vite": "^6.0.0",

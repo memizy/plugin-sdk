@@ -5,7 +5,7 @@
  * npm bundle. Both functions are only ever called in Standalone Mode.
  */
 
-import type { OQSEItem, OQSEMeta } from '../types/oqse';
+import type { OQSEItem, OQSEMeta } from '@memizy/oqse';
 import type { StandaloneStorage } from './storage';
 
 // ── Minimal local typings for JSZip (avoids installing @types/jszip) ────────
@@ -31,12 +31,10 @@ interface JSZipConstructor {
 // ── CDN loader ───────────────────────────────────────────────────────────────
 
 async function loadJSZip(): Promise<JSZipConstructor> {
-  // Dynamic CDN import — intentionally not installed as a dev dependency.
-  // @vite-ignore suppresses Vite's warning; @ts-ignore suppresses tsc's
-  // inability to resolve URL-based module specifiers.
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore
-  const mod = await import(/* @vite-ignore */ 'https://esm.sh/jszip@3.10.1') as { default?: JSZipConstructor };
+  // Use a runtime dynamic importer to avoid TypeScript module-resolution errors
+  // for URL specifiers while keeping strict type safety.
+  const dynamicImport = new Function('u', 'return import(u)') as (url: string) => Promise<unknown>;
+  const mod = await dynamicImport('https://esm.sh/jszip@3.10.1') as { default?: JSZipConstructor };
   return (mod.default ?? (mod as unknown as JSZipConstructor));
 }
 

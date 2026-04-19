@@ -4,14 +4,24 @@
  */
 
 import type {
-  OQSEItem, OQSEMeta, MediaObject, SessionFuelState, SessionSettings, InitSessionPayload,
-} from '../types/oqse';
+  LastAnswerObject as ProgressLastAnswer,
+  MediaObject,
+  OQSEItem,
+  OQSEMeta,
+  ProgressRecord,
+  StatsObject as ProgressStats,
+} from '@memizy/oqse';
 import type {
-  Bucket, ProgressRecord, ProgressLastAnswer, ProgressStats,
-} from '../types/oqsep';
-import type {
-  AnswerOptions, ExitOptions, MemizyPluginOptions, IncomingMessage,
+  AnswerOptions,
+  ExitOptions,
+  IncomingMessage,
+  InitSessionPayload,
+  MemizyPluginOptions,
+  SessionFuelState,
+  SessionSettings,
 } from '../types/messages';
+
+type Bucket = ProgressRecord['bucket'];
 import { defaultLeitnerReducer } from './leitner';
 import { ItemTimerManager } from './timers';
 import { StandaloneStorage } from './storage';
@@ -61,6 +71,8 @@ export class MemizyPlugin {
   // Internal progress state — source of truth for SYNC_PROGRESS
   private progressRecords: Record<string, ProgressRecord> = {};
 
+  private sessionAssets: Record<string, import('@memizy/oqse').MediaObject> = {};
+
   // Mock data for standalone / dev mode
   private mockItems: OQSEItem[] | null = null;
   private mockSettings: Partial<SessionSettings> | null = null;
@@ -100,7 +112,7 @@ export class MemizyPlugin {
     window.addEventListener('message', this.messageListener);
 
     this.send('PLUGIN_READY', { id: this.id, version: this.version });
-    this.log(`SDK v0.2.0 loaded — id=${this.id}, standalone=${window.self === window.top}`);
+    this.log(`SDK v0.2.1 loaded — id=${this.id}, standalone=${window.self === window.top}`);
 
     queueMicrotask(() => this.maybeInitStandaloneMode());
   }
@@ -126,6 +138,7 @@ export class MemizyPlugin {
     switch (msg.type) {
       case 'INIT_SESSION': {
         const payload = msg.payload as InitSessionPayload;
+        this.sessionAssets = payload.assets || {};
         this.initialized = true;
         this.standaloneUI?.destroy();
         this.standaloneUI = null;
@@ -299,18 +312,18 @@ export class MemizyPlugin {
 
       const baseUrl = url.replace(/[^/]*$/, '');
       const meta = oqse['meta'] as Record<string, unknown> | undefined;
-      const metaAssets = (meta?.['assets'] ?? {}) as Record<string, Record<string, unknown>>;
+      const metaAssets = (meta?.['assets'] ?? {}) as Record<string, MediaObject>;
       MemizyPlugin.resolveAssetValues(metaAssets, baseUrl);
 
       for (const item of rawItems) {
-        const itemAssets = (item['assets'] ?? {}) as Record<string, Record<string, unknown>>;
+        const itemAssets = (item['assets'] ?? {}) as Record<string, MediaObject>;
         if (typeof itemAssets === 'object' && itemAssets !== null) {
           MemizyPlugin.resolveAssetValues(itemAssets, baseUrl);
         }
       }
 
       this.log(`Fetched OQSE: ${rawItems.length} items`);
-      payload = this.buildStandalonePayload(rawItems, metaAssets as Record<string, MediaObject>);
+      payload = this.buildStandalonePayload(rawItems, metaAssets);
       // Persist to IndexedDB so the set survives a page reload
       void this.storage.saveItems(rawItems);
       void this.storage.updateMeta((meta ?? {}) as Partial<OQSEMeta>);
@@ -329,9 +342,9 @@ export class MemizyPlugin {
       const rawItems = (oqse['items'] as OQSEItem[] | undefined) ?? [];
       if (!Array.isArray(rawItems)) throw new Error('Missing "items" array.');
       const meta = oqse['meta'] as Record<string, unknown> | undefined;
-      const metaAssets = (meta?.['assets'] ?? {}) as Record<string, Record<string, unknown>>;
+      const metaAssets = (meta?.['assets'] ?? {}) as Record<string, MediaObject>;
       this.log(`Parsed OQSE text: ${rawItems.length} items`);
-      const payload = this.buildStandalonePayload(rawItems, metaAssets as Record<string, MediaObject>);
+      const payload = this.buildStandalonePayload(rawItems, metaAssets);
       // Persist to IndexedDB so the set survives a page reload
       void this.storage.saveItems(rawItems);
       void this.storage.updateMeta((meta ?? {}) as Partial<OQSEMeta>);
@@ -372,6 +385,7 @@ export class MemizyPlugin {
 
   private activateSession(payload: InitSessionPayload): void {
     this.initialized = true;
+    this.sessionAssets = payload.assets || {};
     if (this.standaloneTimer !== null) {
       clearTimeout(this.standaloneTimer);
       this.standaloneTimer = null;
@@ -459,17 +473,17 @@ export class MemizyPlugin {
   // ── Static asset URL resolver ─────────────────────────────────────────────
 
   private static resolveAssetValues(
-    assets: Record<string, Record<string, unknown>>,
+    assets: Record<string, MediaObject>,
     baseUrl: string,
   ): void {
     for (const key of Object.keys(assets)) {
       const media = assets[key];
       if (media == null || typeof media !== 'object') continue;
-      const value = media['value'];
+      const value = media.value;
       if (typeof value !== 'string') continue;
       if (/^[a-z][a-z0-9+\-.]*:/i.test(value)) continue;
       try {
-        media['value'] = new URL(value, baseUrl).href;
+        media.value = new URL(value, baseUrl).href;
       } catch {
         // Malformed URL — leave as-is
       }
@@ -483,6 +497,86 @@ export class MemizyPlugin {
       return crypto.randomUUID();
     }
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  // =========================================================================
+  // Text Processing API
+  // =========================================================================
+
+  /**
+   * [HIGH CEILING] Parses raw OQSE text into safe tokens.
+   * Automatically resolves asset keys to MediaObjects.
+   */
+  parseTextTokens(rawText: string): import('../types/messages').OQSETextToken[] {
+    const tokens: import('../types/messages').OQSETextToken[] = [];
+    const regex = /<(asset|blank):([^>]+)\s*\/>/g;
+
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(rawText)) !== null) {
+      if (match.index > lastIndex) {
+        tokens.push({ type: 'text', value: rawText.substring(lastIndex, match.index) });
+      }
+
+      const tagType = match[1] as 'asset' | 'blank';
+      const key = match[2]!.trim();
+
+      if (tagType === 'asset') {
+        const media = this.sessionAssets[key];
+        tokens.push({ type: 'asset', key, media });
+      } else {
+        tokens.push({ type: 'blank', key });
+      }
+
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < rawText.length) {
+      tokens.push({ type: 'text', value: rawText.substring(lastIndex) });
+    }
+
+    return tokens;
+  }
+
+  /**
+   * [LOW FLOOR] Renders OQSE text directly to HTML.
+   * Converts <asset:key /> tags into <img>, <audio>, or <video> elements.
+   * Accepts optional custom Markdown parsers or sanitizers.
+   */
+  renderHtml(
+    rawText: string,
+    options?: {
+      markdownParser?: (text: string) => string | Promise<string>;
+      sanitizer?: (html: string) => string;
+    }
+  ): string {
+    const tokens = this.parseTextTokens(rawText);
+
+    let html = tokens.map(token => {
+      if (token.type === 'text') return token.value;
+      if (token.type === 'blank') return `<input type="text" data-blank="${token.key}" class="oqse-blank" />`;
+
+      if (token.type === 'asset' && token.media) {
+        const url = token.media.value;
+        if (token.media.type === 'image') return `<img src="${url}" alt="${token.media.altText || ''}" class="oqse-asset-img" />`;
+        if (token.media.type === 'audio') return `<audio src="${url}" controls class="oqse-asset-audio"></audio>`;
+        if (token.media.type === 'video') return `<video src="${url}" controls class="oqse-asset-video"></video>`;
+      }
+      return '';
+    }).join('');
+
+    if (options?.markdownParser) {
+      const parsed = options.markdownParser(html);
+      if (typeof parsed === 'string') {
+        html = parsed;
+      }
+    }
+    if (options?.sanitizer) {
+      html = options.sanitizer(html);
+    }
+
+    return html;
   }
 
   // ── Mock helpers ─────────────────────────────────────────────────────────

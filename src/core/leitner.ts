@@ -3,8 +3,14 @@
  * No side-effects — takes old state and returns new state.
  */
 
-import type { Bucket, ProgressRecord, ProgressStats, ProgressLastAnswer } from '../types/oqsep';
+import type {
+  LastAnswerObject as ProgressLastAnswer,
+  ProgressRecord,
+  StatsObject as ProgressStats,
+} from '@memizy/oqse';
 import type { AnswerOptions } from '../types/messages';
+
+type Bucket = ProgressRecord['bucket'];
 
 /** Days until next review for each bucket after a correct answer. */
 export const LEITNER_INTERVALS_DAYS: Record<Bucket, number> = {

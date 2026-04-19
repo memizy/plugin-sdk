@@ -2,8 +2,46 @@
  * Plugin SDK option types and host→plugin / plugin→host message shapes.
  */
 
-import type { Confidence } from './oqsep';
-import type { SessionSettings } from './oqse';
+import type {
+  LastAnswerObject,
+  MediaObject,
+  OQSEItem,
+  ProgressRecord,
+} from '@memizy/oqse';
+
+export type Confidence = NonNullable<LastAnswerObject['confidence']>;
+export type Bucket = ProgressRecord['bucket'];
+export type ProgressStats = import('@memizy/oqse').StatsObject;
+export type ProgressLastAnswer = LastAnswerObject;
+export type OQSEPMeta = import('@memizy/oqse').ProgressMeta;
+export type OQSEPDocument = import('@memizy/oqse').OQSEPFile;
+
+export interface SessionFuelState {
+  balance: number;
+  multiplier: number;
+}
+
+export interface SessionSettings {
+  shuffle: boolean;
+  masteryMode: boolean;
+  maxItems: number | null;
+  locale: string;
+  theme: 'light' | 'dark' | 'system';
+  fuel: SessionFuelState;
+}
+
+export interface InitSessionPayload {
+  sessionId: string;
+  items: OQSEItem[];
+  assets: Record<string, MediaObject>;
+  settings: SessionSettings;
+  progress?: Record<string, ProgressRecord>;
+}
+
+export type OQSETextToken =
+  | { type: 'text'; value: string }
+  | { type: 'blank'; key: string }
+  | { type: 'asset'; key: string; media?: MediaObject };
 
 // ---------------------------------------------------------------------------
 // Consumer-facing option types
@@ -66,7 +104,7 @@ export interface HostMessage<T extends string, P = undefined> {
 }
 
 export type IncomingMessage =
-  | HostMessage<'INIT_SESSION', import('./oqse').InitSessionPayload>
+  | HostMessage<'INIT_SESSION', InitSessionPayload>
   | HostMessage<'CONFIG_UPDATE', Partial<Pick<SessionSettings, 'theme' | 'locale'>>>
-  | HostMessage<'ASSET_STORED',  { requestId: string; mediaObject?: import('./oqse').MediaObject; error?: string }>
+  | HostMessage<'ASSET_STORED', { requestId: string; mediaObject?: MediaObject; error?: string }>
   | HostMessage<'RAW_ASSET_PROVIDED', { requestId: string; file?: File; error?: string }>;

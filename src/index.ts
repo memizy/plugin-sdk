@@ -11,24 +11,25 @@ export type {
   OQSEItem,
   OQSEMeta,
   MediaObject,
-  SessionFuelState,
-  SessionSettings,
-  InitSessionPayload,
-} from './types/oqse';
+} from '@memizy/oqse';
 
 // OQSEP progress types
 export type {
-  Confidence,
-  Bucket,
-  ProgressStats,
-  ProgressLastAnswer,
   ProgressRecord,
-  OQSEPMeta,
-  OQSEPDocument,
-} from './types/oqsep';
+  LastAnswerObject as ProgressLastAnswer,
+  StatsObject as ProgressStats,
+  ProgressMeta as OQSEPMeta,
+  OQSEPFile as OQSEPDocument,
+} from '@memizy/oqse';
 
 // Protocol option types
 export type {
+  SessionFuelState,
+  SessionSettings,
+  InitSessionPayload,
+  Confidence,
+  Bucket,
+  OQSETextToken,
   AnswerOptions,
   ExitOptions,
   MemizyPluginOptions,

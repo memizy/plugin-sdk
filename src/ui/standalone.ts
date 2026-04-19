@@ -4,7 +4,7 @@
  */
 
 import { STANDALONE_UI_CSS } from './styles';
-import type { ProgressRecord } from '../types/oqsep';
+import type { ProgressRecord } from '@memizy/oqse';
 
 export interface StandaloneUICallbacks {
   onLoadUrl:           (url:  string, onError: (msg: string) => void) => void;
