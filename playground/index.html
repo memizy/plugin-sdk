@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Memizy Plugin SDK &mdash; Playground Editor</title>
+    <title>Memizy Plugin SDK v0.2.1 &mdash; Playground Editor</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       :root {
@@ -56,6 +56,11 @@
       .bdot.b3 { background:var(--b3); } .bdot.b4 { background:var(--b4); }
       .bdot.cur { border-color:#0f172a; transform:scaleY(1.5); }
       .controls-row { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+      .tp-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+      .tp-col { display:flex; flex-direction:column; gap:6px; min-width:0; }
+      .tp-output { border:1px solid var(--border); background:var(--surface2); border-radius:8px; min-height:120px; padding:10px; overflow:auto; }
+      .tp-json { background:#0f172a; color:#cbd5e1; border-radius:8px; padding:10px; font-size:.73rem; max-height:180px; overflow:auto; white-space:pre-wrap; }
+      .danger-note { color:#991b1b; background:#fee2e2; border:1px solid #fecaca; border-radius:8px; padding:8px 10px; font-size:.78rem; }
       .waiting { font-size:2rem; }
       .waiting-label { color:var(--muted); font-size:.9rem; }
       .set-meta-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
@@ -123,13 +128,16 @@
       .w100 { width:100%; }
       .hidden { display:none !important; }
       code { font-family:'Cascadia Code',Consolas,monospace; font-size:.82em; background:var(--bg); padding:1px 5px; border-radius:4px; }
+      @media (max-width: 800px) {
+        .tp-grid { grid-template-columns:1fr; }
+      }
     </style>
   </head>
   <body>
 
     <header>
       <h1>&#128640; Memizy Plugin Playground</h1>
-      <span class="badge b-orange">v0.2.0</span>
+      <span class="badge b-orange">v0.2.1</span>
       <span class="badge b-green" id="badge-standalone">&#9679; Standalone</span>
       <span class="set-title-display" id="header-set-title">No set loaded</span>
     </header>
@@ -189,6 +197,40 @@
         <button class="btn btn-success btn-sm" id="btn-restart"     disabled>&#8635; Restart</button>
         <button class="btn btn-amber btn-sm"   id="btn-resize-test">&#8597; requestResize()</button>
         <button class="btn btn-ghost btn-sm"   id="btn-report-err" >&#9888; reportError()</button>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Text Processing Demo (Low Floor + High Ceiling)</div>
+        <p class="text-muted" style="margin-bottom:10px;">
+          This panel demonstrates both SDK text paths: <code>renderHtml()</code> (Low Floor) and <code>parseTextTokens()</code> (High Ceiling).
+        </p>
+        <div class="danger-note" style="margin-bottom:10px;">
+          Security demo: the "Run XSS alert demo" button renders unsafe HTML intentionally so you can see why a sanitizer is required.
+        </div>
+        <div class="form-group w100" style="margin-bottom:10px;">
+          <label>Raw Content</label>
+          <textarea id="tp-input" rows="3" placeholder="Try: Solve: &lt;blank:answer /&gt; and inspect &lt;asset:demo-image /&gt;"></textarea>
+        </div>
+        <div class="flex-gap" style="margin-bottom:10px;">
+          <button class="btn btn-secondary btn-sm" id="btn-render-low">Render Low Floor (Unsafe)</button>
+          <button class="btn btn-success btn-sm" id="btn-render-low-safe">Render Low Floor (Sanitized)</button>
+          <button class="btn btn-blue btn-sm" id="btn-render-high">Render High Ceiling Tokens</button>
+          <button class="btn btn-danger btn-sm" id="btn-xss-alert">Run XSS alert demo</button>
+        </div>
+        <div class="tp-grid" style="margin-bottom:10px;">
+          <div class="tp-col">
+            <label class="text-muted">Low Floor Output (HTML)</label>
+            <div id="tp-low-output" class="tp-output"></div>
+          </div>
+          <div class="tp-col">
+            <label class="text-muted">High Ceiling Output (Token Mapped)</label>
+            <div id="tp-high-output" class="tp-output"></div>
+          </div>
+        </div>
+        <div class="tp-col">
+          <label class="text-muted">High Ceiling Token JSON</label>
+          <pre id="tp-token-json" class="tp-json">[]</pre>
+        </div>
       </div>
 
     </div>
@@ -340,7 +382,7 @@
     </div>
 
     <div id="console-panel">
-      <span class="log-inf">&#9654; Memizy Plugin SDK v0.2.0 &mdash; playground loaded. Use the &#9881; gear button or click &quot;Load Sample Set&quot;.</span><br/>
+      <span class="log-inf">&#9654; Memizy Plugin SDK v0.2.1 &mdash; playground loaded. Use the &#9881; gear button or click &quot;Load Sample Set&quot;.</span><br/>
     </div>
 
     <script type="module" src="./main.ts"></script>

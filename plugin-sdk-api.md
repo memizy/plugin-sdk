@@ -6,8 +6,8 @@
 - [Architecture](#architecture)
 - [Lifecycle](#lifecycle)
 - [Message Protocol](#message-protocol)
-  - [Host → Plugin messages](#1-host--plugin)
-  - [Plugin → Host messages](#2-plugin--host)
+  - [Host → Plugin messages](#host--plugin-messages)
+  - [Plugin → Host messages](#plugin--host-messages)
 - [Message Reference Table](#message-reference-table)
 - [Development Guidelines](#development-guidelines)
 - [SDK Reference](#sdk-reference)
@@ -102,7 +102,7 @@ interface PluginMessage<T extends string, P = undefined> {
 }
 ```
 
-### 1. Host → Plugin
+### Host → Plugin messages
 
 #### `INIT_SESSION`
 
@@ -190,7 +190,7 @@ Response to a `REQUEST_RAW_ASSET` message. Contains the raw `File` object, or an
 
 ---
 
-### 2. Plugin → Host
+### Plugin → Host messages
 
 #### `PLUGIN_READY`
 
@@ -364,7 +364,13 @@ Sent for non-fatal errors that the Host should log. Plugin MUST continue running
 5. **Graceful fallback.** If a plugin receives an item type it does not support, call `plugin.skip(itemId)` and continue with the next item. It MUST NOT crash.
 6. **Standalone / Dev mode.** The SDK detects when it is running outside a Memizy host frame (`window.self === window.top`) and handles session startup automatically. The developer's `onInit` callback is called identically in all cases  no extra code is required in the plugin.
 7. **No external tracking.** Plugins MUST NOT include third-party analytics or tracking scripts. All telemetry flows through the Host via the message protocol.
-8. **Manifest required.** Every plugin MUST embed a valid OQSE Application Manifest (see [`open-study-exchange-v1.md`](open-study-exchange-v1.md), section 2.1) in a `<script type="application/oqse-manifest+json">` tag.
+8. **Manifest required.** Every plugin MUST embed a valid OQSE Application Manifest inside its `index.html`.
+   To keep this SDK documentation evergreen, use the canonical manifest reference in the OQSE specification repository:
+   [OQSE Manifest Specification](https://github.com/memizy/oqse-specification/blob/main/oqse-manifest.md).
+
+For broader schema and format requirements, refer to the
+[OQSE Core Specification](https://github.com/memizy/oqse-specification/blob/main/oqse.md)
+and [OQSE Progress Specification](https://github.com/memizy/oqse-specification/blob/main/oqse-progress.md).
 
 ---
 
@@ -522,6 +528,8 @@ plugin.updateMeta(meta: Partial<OQSEMeta>): this
 #### Asset Bridge
 
 Because plugins run in a cross-origin `<iframe>`, they cannot access host storage directly. The asset bridge proxies file I/O through the Host.
+
+During session initialization (`INIT_SESSION`), the SDK stores `payload.assets` in an internal session asset registry. The Text Processing API then resolves `<asset:key />` tags against this in-memory map, so `parseTextTokens()` and `renderHtml()` can reference host-provided assets immediately.
 
 ```typescript
 // Upload a File or Blob to the host's storage.

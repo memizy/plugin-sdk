@@ -1,29 +1,60 @@
 ﻿/**
- * playground/main.ts  -  Memizy Plugin SDK v0.2.0 Playground Editor
+ * playground/main.ts  -  Memizy Plugin SDK v0.2.1 Playground Editor
  *
  * Full standalone editor / viewer showcasing ALL SDK capabilities:
  *  Study:    onInit, answer, skip, startItemTimer, exit, requestResize, reportError
  *  Edit:     saveItems, deleteItems, updateMeta, import/export .oqse.json
  *  Assets:   uploadAsset, getRawAsset  (IndexedDB in standalone)
  *  Progress: getProgress, syncProgress, export .oqsep
- *  Misc:     isStandalone, standaloneUiPosition, customParams, onConfigUpdate
+ *  Misc:     isStandalone, standaloneUiPosition, onConfigUpdate
+ *  Text:     renderHtml (low floor), parseTextTokens (high ceiling), XSS demo
  */
 
 import { MemizyPlugin } from '../src/index';
-import type { OQSEItem, InitSessionPayload, OQSEMeta } from '../src/index';
+import type { OQSEItem, InitSessionPayload, OQSEMeta, OQSETextToken } from '../src/index';
+
+type SetMetaState = Partial<OQSEMeta>;
+type PlaygroundItem = {
+  id: string;
+  type: string;
+  [key: string]: unknown;
+  question?: string;
+  answer?: string;
+  options?: string[];
+  correct?: number;
+  assetKey?: string;
+  assets?: Record<string, { value: string }>;
+};
 
 // -----------------------------------------------------------------------------
 // Sample data (loaded on "Load Sample Set" click)
 // -----------------------------------------------------------------------------
 
-const SAMPLE_ITEMS: OQSEItem[] = [
-  { id: 'item-001', type: 'flashcard', question: 'What is the powerhouse of the cell?',    answer: 'The mitochondrion.' },
+const SAMPLE_ITEMS: PlaygroundItem[] = [
+  {
+    id: 'item-001',
+    type: 'flashcard',
+    question: 'Complete this sentence: The powerhouse of the cell is <blank:powerhouse />. Visual: <asset:demo-image />',
+    answer: 'The mitochondrion.',
+  },
   { id: 'item-002', type: 'flashcard', question: 'Capital of Australia?',                   answer: 'Canberra (not Sydney!).' },
   { id: 'item-003', type: 'mcq-single', question: 'Which planet is closest to the Sun?',   options: ['Venus', 'Mercury', 'Earth', 'Mars'], correct: 1 },
   { id: 'item-004', type: 'mcq-single', question: 'What does HTTP stand for?',             options: ['HyperText Transfer Protocol', 'Hyper Transfer Text Protocol', 'High Transfer Tech Protocol', 'HyperText Transport Protocol'], correct: 0 },
   { id: 'item-005', type: 'flashcard', question: 'Who wrote "The Republic"?',               answer: 'Plato.' },
 ];
-const SAMPLE_META: OQSEMeta = { title: 'Sample Study Set', description: 'Built-in demo set for the SDK Playground.' };
+const SAMPLE_META: SetMetaState = {
+  title: 'Sample Study Set',
+  description: 'Built-in demo set for the SDK Playground.',
+  assets: {
+    'demo-image': {
+      type: 'image',
+      value: 'https://upload.wikimedia.org/wikipedia/commons/3/3f/Cell_Organelles.png',
+      altText: 'Cell organelles diagram',
+    },
+  },
+};
+
+const XSS_PAYLOAD = 'Unsafe HTML demo: <img src="x" onerror="alert(\'XSS fired from unsanitized renderHtml output\')" />';
 
 // -----------------------------------------------------------------------------
 // SDK instance
@@ -31,7 +62,7 @@ const SAMPLE_META: OQSEMeta = { title: 'Sample Study Set', description: 'Built-i
 
 const plugin = new MemizyPlugin({
   id: 'https://playground.memizy.local/editor',
-  version: '0.2.0',
+  version: '0.2.1',
   standaloneTimeout: 1500,
   debug: true,
   showStandaloneControls: true,
@@ -42,8 +73,8 @@ const plugin = new MemizyPlugin({
 // State
 // -----------------------------------------------------------------------------
 
-let items: OQSEItem[]     = [];
-let setMeta: OQSEMeta     = {};
+let items: PlaygroundItem[] = [];
+let setMeta: SetMetaState = {};
 let cursor                = 0;
 let answered              = 0;
 /** blobURL cache: key -> blob: URL */
@@ -76,13 +107,80 @@ function download(data: string, filename: string, mime = 'application/json'): vo
   a.click();
 }
 
+function basicSanitizer(html: string): string {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+
+  template.content.querySelectorAll('script, iframe, object, embed').forEach(el => el.remove());
+  template.content.querySelectorAll<HTMLElement>('*').forEach(el => {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith('on')) el.removeAttribute(attr.name);
+      if ((name === 'src' || name === 'href') && value.startsWith('javascript:')) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+
+  return template.innerHTML;
+}
+
+function mapTokensToHtml(tokens: OQSETextToken[]): string {
+  return tokens.map((token) => {
+    if (token.type === 'text') return esc(token.value);
+    if (token.type === 'blank') {
+      return `<input type="text" placeholder="${esc(token.key)}" class="oqse-blank" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;" />`;
+    }
+    if (token.type === 'asset' && token.media) {
+      const media = token.media;
+      const url = esc(media.value);
+      if (media.type === 'image') {
+        return `<img src="${url}" alt="${esc(media.altText ?? token.key)}" style="max-width:180px;border-radius:8px;display:inline-block;" />`;
+      }
+      if (media.type === 'audio') {
+        return `<audio controls src="${url}"></audio>`;
+      }
+      if (media.type === 'video') {
+        return `<video controls src="${url}" style="max-width:220px;"></video>`;
+      }
+      return `<span class="text-muted">[unsupported asset:${esc(token.key)}]</span>`;
+    }
+    return `<span class="text-muted">[missing asset:${esc(token.key)}]</span>`;
+  }).join('');
+}
+
+function getRawDemoInput(): string {
+  return $<HTMLTextAreaElement>('tp-input').value;
+}
+
+function renderLowFloor(rawText: string, useSanitizer: boolean): void {
+  const html = plugin.renderHtml(rawText, {
+    sanitizer: useSanitizer ? basicSanitizer : undefined,
+  });
+  $('tp-low-output').innerHTML = html;
+}
+
+function renderHighCeiling(rawText: string): void {
+  const tokens = plugin.parseTextTokens(rawText);
+  $('tp-token-json').textContent = JSON.stringify(tokens, null, 2);
+  $('tp-high-output').innerHTML = mapTokensToHtml(tokens);
+}
+
+function setTextDemoFromCurrentItem(item: PlaygroundItem): void {
+  const rawText = String((item as { question?: unknown }).question ?? '');
+  $<HTMLTextAreaElement>('tp-input').value = rawText;
+  renderLowFloor(rawText, true);
+  renderHighCeiling(rawText);
+}
+
 // -----------------------------------------------------------------------------
 // Welcome screen
 // -----------------------------------------------------------------------------
 
 $('btn-load-samples').addEventListener('click', async () => {
   log('Loading sample set via saveItems() + updateMeta()...', 'inf');
-  await plugin.saveItems(SAMPLE_ITEMS);
+  await plugin.saveItems(SAMPLE_ITEMS as unknown as OQSEItem[]);
   await plugin.updateMeta(SAMPLE_META);
   log('Sample set saved  -  reloading to trigger onInit...', 'ok');
   setTimeout(() => location.reload(), 350);
@@ -128,7 +226,7 @@ function revealUI(): void {
 
 const cardArea        = $('card-area');
 
-function updateBucketBar(item: OQSEItem): void {
+function updateBucketBar(item: PlaygroundItem): void {
   const prog   = plugin.getProgress();
   const rec    = prog[item.id];
   const bucket = rec?.bucket ?? 0;
@@ -140,7 +238,7 @@ function updateBucketBar(item: OQSEItem): void {
   $('session-stats').textContent = `${answered} answered`;
 }
 
-function renderFlashcard(item: OQSEItem): void {
+function renderFlashcard(item: PlaygroundItem): void {
   const answer = String((item as { answer?: unknown }).answer ?? '(no answer)');
   cardArea.innerHTML = `
     <span class="item-badge flashcard">Flashcard</span>
@@ -164,7 +262,7 @@ function renderFlashcard(item: OQSEItem): void {
   $<HTMLButtonElement>('btn-next').disabled    = true;
 }
 
-function renderMCQ(item: OQSEItem): void {
+function renderMCQ(item: PlaygroundItem): void {
   const opts    = ((item as {options?:unknown}).options as string[]) ?? [];
   const correct = Number((item as {correct?:unknown}).correct ?? 0);
   const letters = ['A','B','C','D'];
@@ -204,13 +302,14 @@ function renderMCQ(item: OQSEItem): void {
   $<HTMLButtonElement>('btn-next').disabled    = true;
 }
 
-function renderItem(item: OQSEItem): void {
+function renderItem(item: PlaygroundItem): void {
   plugin.startItemTimer(item.id);
   if (item.type === 'flashcard')  renderFlashcard(item);
   else if (item.type === 'mcq-single') renderMCQ(item);
   else {
     cardArea.innerHTML = `<div class="item-question">${esc(item.type)}: ${esc(String((item as {question?:unknown}).question ?? ' - '))}</div>`;
   }
+  setTextDemoFromCurrentItem(item);
   updateBucketBar(item);
 }
 
@@ -298,6 +397,31 @@ $('btn-report-err').addEventListener('click', () => {
   log('reportError("PLAYGROUND_TEST", ...) called.', 'warn');
 });
 
+$('btn-render-low').addEventListener('click', () => {
+  const raw = getRawDemoInput();
+  renderLowFloor(raw, false);
+  log('Low Floor renderHtml() rendered without sanitizer (unsafe).', 'warn');
+});
+
+$('btn-render-low-safe').addEventListener('click', () => {
+  const raw = getRawDemoInput();
+  renderLowFloor(raw, true);
+  log('Low Floor renderHtml() rendered with custom sanitizer.', 'ok');
+});
+
+$('btn-render-high').addEventListener('click', () => {
+  const raw = getRawDemoInput();
+  renderHighCeiling(raw);
+  log('High Ceiling parseTextTokens() rendered via manual token mapping.', 'ok');
+});
+
+$('btn-xss-alert').addEventListener('click', () => {
+  $<HTMLTextAreaElement>('tp-input').value = XSS_PAYLOAD;
+  renderLowFloor(XSS_PAYLOAD, false);
+  renderHighCeiling(XSS_PAYLOAD);
+  log('XSS demo executed: unsafe Low Floor output may trigger alert().', 'warn');
+});
+
 // -----------------------------------------------------------------------------
 // Edit tab
 // -----------------------------------------------------------------------------
@@ -370,7 +494,7 @@ $('btn-add-item').addEventListener('click', () => {
   const assetKey = ($<HTMLInputElement> ('input-item-asset')).value.trim();
   if (!question) { log('Question is empty!', 'err'); return; }
 
-  let newItem: OQSEItem;
+  let newItem: PlaygroundItem;
   if (type === 'flashcard') {
     const answer = ($<HTMLTextAreaElement>('input-fc-answer')).value.trim();
     if (!answer) { log('Answer is empty!', 'err'); return; }
@@ -382,7 +506,7 @@ $('btn-add-item').addEventListener('click', () => {
     newItem = { id: uid(), type: 'mcq-single', question, options: opts, correct, ...(assetKey ? { assetKey } : {}) };
   }
 
-  plugin.saveItems([newItem]);
+  plugin.saveItems([newItem as unknown as OQSEItem]);
   items.push(newItem);
   log(`saveItems([{ id: "${newItem.id}", type: "${type}", ... }])`, 'ok');
   renderItemList();
@@ -411,10 +535,10 @@ $<HTMLInputElement>('input-import-json').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const data = JSON.parse(String(reader.result)) as { meta?: OQSEMeta; items?: OQSEItem[] };
+      const data = JSON.parse(String(reader.result)) as { meta?: SetMetaState; items?: PlaygroundItem[] };
       const importedItems = data.items ?? [];
       const importedMeta  = data.meta  ?? {};
-      plugin.saveItems(importedItems);
+      plugin.saveItems(importedItems as unknown as OQSEItem[]);
       plugin.updateMeta(importedMeta);
       log(`Imported ${importedItems.length} items from ${file.name}. Reloading...`, 'ok');
       setTimeout(() => location.reload(), 400);
@@ -552,8 +676,8 @@ $('btn-sync-all').addEventListener('click', () => {
 
 plugin
   .onInit((payload: InitSessionPayload) => {
-    items    = [...payload.items];
-    setMeta  = { title: payload.assets?.['__meta__']?.altText, ...payload };
+    items    = [...payload.items] as unknown as PlaygroundItem[];
+    setMeta  = { ...setMeta };
     cursor   = 0;
     answered = 0;
 
@@ -563,20 +687,20 @@ plugin
     });
     // Resolve per-item assets
     items.forEach(item => {
-      const ia = (item as { assets?: Record<string, { value: string }> }).assets;
+      const ia = item.assets;
       Object.entries(ia ?? {}).forEach(([k, mo]) => {
         if (mo?.value) assetCache[k] = mo.value;
       });
     });
 
     // Update header
-    const title = (payload as { meta?: OQSEMeta }).meta?.title
-      ?? (payload as { title?: string }).title
+    const title = payload.assets?.['__meta__']?.altText
+      ?? setMeta.title
       ?? 'Untitled Set';
     $('header-set-title').textContent = title;
     setMeta.title = title;
 
-    log(`onInit: ${items.length} items  |  isStandalone=${plugin.isStandalone()}  |  customParams=${JSON.stringify(payload.settings?.customParams ?? {})}`, 'ok');
+    log(`onInit: ${items.length} items  |  isStandalone=${plugin.isStandalone()}  |  locale=${payload.settings?.locale ?? 'n/a'}`, 'ok');
 
     if (items.length === 0) {
       revealUI();

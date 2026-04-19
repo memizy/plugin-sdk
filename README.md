@@ -1,190 +1,140 @@
-<div align="center">
+# Memizy Plugin SDK
 
-# 🛠️ Memizy Plugin API & SDK
-**Build interactive study modules for the OQSE ecosystem.**
+Official TypeScript SDK for building Memizy plugins on top of the OQSE ecosystem.
 
-![Version](https://img.shields.io/badge/npm-v0.2.0-blue?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
+![Version](https://img.shields.io/badge/npm-v0.2.1-blue)
+![License](https://img.shields.io/badge/License-MIT-success)
 
-</div>
+## Overview
 
----
+Memizy plugins run inside a sandboxed iframe and communicate with the host via a typed `postMessage` protocol. The SDK provides:
 
-## 💡 What is this?
+- lifecycle handshake (`PLUGIN_READY` -> `INIT_SESSION`)
+- internal Leitner progress reducer with automatic `SYNC_PROGRESS`
+- CRUD helpers for item and metadata mutation
+- host-bridged asset upload/download methods
+- standalone development mode with built-in loading UI
 
-Memizy host applications use a **sandboxed iframe architecture** to render study sets. This SDK provides a TypeScript library around the `window.postMessage` API, allowing custom plugins to communicate with the host. The SDK also runs the **Leitner spaced-repetition algorithm internally**, keeping the host's storage in sync after every interaction via the `SYNC_PROGRESS` message.
+Starting in `v0.2.1`, SDK domain model types are sourced from `@memizy/oqse`.
 
-## 📦 Installation
+## Installation
 
 ```bash
 npm install @memizy/plugin-sdk
 ```
 
-Or use the CDN build directly in a static HTML plugin:
+CDN (static plugin projects):
 
 ```html
 <script type="module">
-  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk@0.2.0/dist/memizy-sdk.js';
+  import { MemizyPlugin } from 'https://cdn.jsdelivr.net/npm/@memizy/plugin-sdk@0.2.1/dist/memizy-sdk.js';
 </script>
 ```
 
-## 🏗️ Architecture
-
-**State-Sync + CRUD + Asset Bridge**
-
-| Role | Responsibility |
-|---|---|
-| **Host (Memizy Player)** | Owns persistent storage. Fetches study sets, rewards Fuel, persists OQSEP progress to its own database. |
-| **Plugin (SDK)** | Owns session-level state. Renders items, runs the Leitner reducer internally, pushes progress deltas via `SYNC_PROGRESS`. Can read/write assets through the host bridge. |
-
-## 🧭 Standalone Mode
-
-The SDK automatically detects when the plugin is running outside a Memizy host (`window.self === window.top`) and enters **Standalone Mode**. The developer's `onInit` callback is called identically in all cases — no extra code is needed.
-
-**Priority order:**
-
-| # | Condition | Behaviour |
-|---|-----------|-----------|
-| 1 | Running inside the Memizy iframe | Waits for `INIT_SESSION` postMessage from host |
-| 2 | `useMockData()` was called | Fires `onInit` after `standaloneTimeout` ms if no host message arrives |
-| 3 | `?set=<url>` query parameter present | Fetches the OQSE JSON from that URL and fires `onInit` automatically |
-| 4 | None of the above | Shows a floating ⚙ gear icon and opens a settings dialog |
-
-A **floating ⚙ gear button** (bottom-right corner, closed Shadow DOM) is shown in standalone mode. Clicking it opens a dialog with two tabs:
-
-- **Study Set** — load via URL, paste OQSE JSON, or upload a `.oqse.json` file (drag & drop supported)
-- **Progress** — load OQSEP progress via pasted JSON or `.oqsep` file upload
-
-Set `showStandaloneControls: false` to suppress the built-in UI entirely.
-
-**Using `?set=` during development:**
-
-```
-http://localhost:5173/?set=https://example.com/my-set/data.oqse.json
-```
-
-All relative `MediaObject.value` paths in `meta.assets` and `item.assets` are automatically resolved to absolute URLs so plugins always receive ready-to-use asset URLs.
-
-## 📊 State-Sync & Spaced Repetition
-
-The SDK runs a **Leitner spaced-repetition reducer** internally on every `answer()` call. Each answer:
-
-1. Stops the item timer (or uses an explicit `timeSpent`).
-2. Computes a new `ProgressRecord` — advances the bucket (0→4) on correct, resets to 1 on incorrect — and sets `nextReviewAt`.
-3. Immediately sends `SYNC_PROGRESS` to the host to keep its storage in sync.
-
-`skip()` records `isSkipped: true` in `lastAnswer` without touching the bucket or stats, and also sends `SYNC_PROGRESS`.
-
-## ✏️ CRUD — Study Set Mutation
-
-Plugins can modify the study set at any time during a session:
-
-```typescript
-plugin.saveItems(items)       // Create or update items (merged by id)
-plugin.deleteItems(itemIds)   // Delete items by UUID
-plugin.updateMeta(partialMeta) // Update title, tags, assets, etc.
-```
-
-## 🗂️ Asset Bridge
-
-Because plugins run in a cross-origin `<iframe>`, they cannot access host storage directly. The SDK proxies asset I/O through the host:
-
-```typescript
-// Upload a file to host storage and get back a MediaObject
-const media = await plugin.uploadAsset(file, 'hero-image');
-plugin.saveItems([{ ...item, assets: { image: media } }]);
-
-// Read a raw file from host storage
-const file = await plugin.getRawAsset('skull-model');
-const url = URL.createObjectURL(file);
-```
-
-## 🚀 Quick Start
+## Quick Start
 
 ```typescript
 import { MemizyPlugin } from '@memizy/plugin-sdk';
-import type { OQSEItem, InitSessionPayload } from '@memizy/plugin-sdk';
+import type { InitSessionPayload, OQSEItem } from '@memizy/plugin-sdk';
 
 const plugin = new MemizyPlugin({
-  id: 'https://my-domain.com/flashcard-plugin',  // must match OQSE manifest id
+  id: 'https://my-domain.com/my-plugin',
   version: '1.0.0',
   debug: true,
 });
 
-// Optional: provide mock data for development outside the host
-plugin.useMockData([
-  { id: 'q1', type: 'flashcard', question: 'What is 2+2?', answer: '4' },
-  { id: 'q2', type: 'flashcard', question: 'Capital of France?', answer: 'Paris' },
-]);
-
 let items: OQSEItem[] = [];
 let cursor = 0;
 
-plugin.onInit(({ items: sessionItems, progress }: InitSessionPayload) => {
-  items = sessionItems;
-  showItem(items[cursor]!);
+plugin.onInit((payload: InitSessionPayload) => {
+  items = payload.items;
+  render(items[cursor]!);
 });
 
-function showItem(item: OQSEItem) {
+function render(item: OQSEItem): void {
   plugin.startItemTimer(item.id);
-  document.getElementById('question')!.textContent = String(item['question']);
 }
-
-document.getElementById('btn-correct')!.addEventListener('click', () => {
-  const item = items[cursor]!;
-  plugin.answer(item.id, true, { confidence: 4 });  // runs Leitner, sends SYNC_PROGRESS
-  if (++cursor < items.length) showItem(items[cursor]!);
-  else plugin.exit({ score: 100 });
-});
-
-document.getElementById('btn-wrong')!.addEventListener('click', () => {
-  const item = items[cursor]!;
-  plugin.answer(item.id, false, { confidence: 1 });
-  if (++cursor < items.length) showItem(items[cursor]!);
-  else plugin.exit({ score: 0 });
-});
 ```
 
-## 📚 API Summary
+## Low Floor, High Ceiling Text Processing API
 
-### Constructor options
+The SDK includes a text processing layer designed for both rapid integration and advanced rendering pipelines.
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `id` | `string` | — | Unique plugin identifier (URL or URN-UUID). Must match the OQSE manifest. |
-| `version` | `string` | — | SemVer version of the plugin. |
-| `standaloneTimeout` | `number` | `2000` | ms to wait for `INIT_SESSION` before entering standalone/mock mode. |
-| `debug` | `boolean` | `false` | Log lifecycle events to the browser console. |
-| `showStandaloneControls` | `boolean` | `true` | Show the floating ⚙ gear UI in standalone mode. |
+### Low Floor: `renderHtml()`
 
-### Key methods
+Use `renderHtml()` when you want fast integration in Vanilla JS or simple template-driven UIs.
+
+- returns a basic HTML string
+- resolves `<asset:key />` using the current session asset registry
+- renders `<blank:key />` as input fields
+
+```typescript
+const html = plugin.renderHtml(rawText, {
+  markdownParser: (text) => marked.parse(text) as string,
+  sanitizer: (unsafeHtml) => DOMPurify.sanitize(unsafeHtml),
+});
+target.innerHTML = html;
+```
+
+### High Ceiling: `parseTextTokens()`
+
+Use `parseTextTokens()` when building framework-native rendering in React, Vue, Svelte, or custom component systems.
+
+- returns structured tokens (`text`, `blank`, `asset`)
+- asset tokens include resolved `MediaObject` when available
+- enables deterministic component mapping and custom UI logic
+
+```typescript
+const tokens = plugin.parseTextTokens(rawText);
+
+for (const token of tokens) {
+  if (token.type === 'asset') {
+    // map to framework component
+  }
+}
+```
+
+### Security and Sanitization
+
+> [!WARNING]
+> `renderHtml()` does not sanitize output by default.
+> This is intentional (Inversion of Control): the SDK leaves sanitization policy to the plugin.
+> Always provide your own sanitizer (for example, DOMPurify) before assigning HTML to the DOM.
+
+## Asset Bridge and Session Assets
+
+Plugins cannot directly access host storage in a cross-origin iframe. Use:
+
+- `uploadAsset(file, suggestedKey?)`
+- `getRawAsset(key)`
+
+At session startup, the SDK stores `INIT_SESSION.payload.assets` in an internal session asset map. Text APIs (`parseTextTokens` and `renderHtml`) resolve `<asset:key />` tags against this map so asset references are immediately usable in rendering.
+
+## Core API Summary
 
 | Method | Description |
 |---|---|
-| `onInit(handler)` | Called when `INIT_SESSION` is received (or standalone fires). |
-| `onConfigUpdate(handler)` | Called when `CONFIG_UPDATE` is received (theme/locale change). |
-| `answer(id, isCorrect, opts?)` | Record answer → run Leitner → send `SYNC_PROGRESS`. |
-| `skip(id)` | Record skip (isSkipped=true) → send `SYNC_PROGRESS`. |
-| `syncProgress(records)` | Bulk-merge progress records and push to host. |
-| `getProgress()` | Snapshot of current internal progress state. |
-| `saveItems(items)` | Send `MUTATE_ITEMS` to host. |
-| `deleteItems(ids)` | Send `DELETE_ITEMS` to host. |
-| `updateMeta(meta)` | Send `MUTATE_META` to host. |
-| `uploadAsset(file, key?)` | Upload file to host storage → `Promise<MediaObject>`. |
-| `getRawAsset(key)` | Read raw file from host storage → `Promise<File\|Blob>`. |
-| `exit(opts?)` | Send `EXIT_REQUEST` (replaces old `complete()`). |
-| `startItemTimer(id)` | Start per-item stopwatch. |
-| `stopItemTimer(id)` | Stop timer, return elapsed ms. |
-| `clearItemTimer(id)` | Stop timer silently. |
-| `useMockData(items, opts?)` | Register mock data for standalone dev mode. |
-| `triggerMock()` | Fire `onInit` with mock data immediately. |
-| `isStandalone()` | Returns `true` when running outside a host frame. |
-| `destroy()` | Clean up listeners, timers, and standalone UI. |
+| `onInit(handler)` | Receives `INIT_SESSION` payload and starts plugin runtime. |
+| `onConfigUpdate(handler)` | Receives runtime theme/locale updates. |
+| `answer(id, isCorrect, opts?)` | Applies Leitner reducer and sends `SYNC_PROGRESS`. |
+| `skip(id)` | Marks skip and sends `SYNC_PROGRESS`. |
+| `syncProgress(records)` | Bulk merges and pushes progress state. |
+| `saveItems(items)` | Persists item create/update via host. |
+| `deleteItems(ids)` | Deletes items via host. |
+| `updateMeta(meta)` | Updates set metadata via host. |
+| `uploadAsset(file, key?)` | Stores asset via host and returns `MediaObject`. |
+| `getRawAsset(key)` | Fetches stored raw asset as `File | Blob`. |
+| `parseTextTokens(rawText)` | Returns token stream for custom renderers. |
+| `renderHtml(rawText, options?)` | Returns baseline HTML with resolved tokens. |
+| `exit(options?)` | Sends `EXIT_REQUEST` with score/time payload. |
 
-## 📚 Documentation
+## Documentation
 
-Full protocol specification: [plugin-sdk-api-v1.md](plugin-sdk-api-v1.md)
+- Full API and protocol reference: [plugin-sdk-api.md](plugin-sdk-api.md)
+- OQSE core specification: [memizy/oqse-specification/oqse.md](https://github.com/memizy/oqse-specification/blob/main/oqse.md)
+- OQSE manifest specification: [memizy/oqse-specification/oqse-manifest.md](https://github.com/memizy/oqse-specification/blob/main/oqse-manifest.md)
+- OQSE progress specification: [memizy/oqse-specification/oqse-progress.md](https://github.com/memizy/oqse-specification/blob/main/oqse-progress.md)
 
-<div align="center">
-<i>Maintained with ❤️ by the Memizy Team.</i>
-</div>
+## License
+
+MIT
