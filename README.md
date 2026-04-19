@@ -56,17 +56,18 @@ function render(item: OQSEItem): void {
 }
 ```
 
-## Low Floor, High Ceiling Text Processing API
+## Text Processing API
 
 The SDK includes a text processing layer designed for both rapid integration and advanced rendering pipelines.
 
-### Low Floor: `renderHtml()`
+### `renderHtml()` - Unsafe vs Sanitized HTML
 
 Use `renderHtml()` when you want fast integration in Vanilla JS or simple template-driven UIs.
 
 - returns a basic HTML string
 - resolves `<asset:key />` using the current session asset registry
 - renders `<blank:key />` as input fields
+- when no sanitizer is provided, output is unsafe for direct DOM insertion
 
 ```typescript
 const html = plugin.renderHtml(rawText, {
@@ -76,7 +77,7 @@ const html = plugin.renderHtml(rawText, {
 target.innerHTML = html;
 ```
 
-### High Ceiling: `parseTextTokens()`
+### `parseTextTokens()` - Tokenized Rendering
 
 Use `parseTextTokens()` when building framework-native rendering in React, Vue, Svelte, or custom component systems.
 

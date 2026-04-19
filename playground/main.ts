@@ -7,7 +7,7 @@
  *  Assets:   uploadAsset, getRawAsset  (IndexedDB in standalone)
  *  Progress: getProgress, syncProgress, export .oqsep
  *  Misc:     isStandalone, standaloneUiPosition, onConfigUpdate
- *  Text:     renderHtml (low floor), parseTextTokens (high ceiling), XSS demo
+ *  Text:     renderHtml (unsafe/sanitized), parseTextTokens (tokenized), XSS demo
  */
 
 import { MemizyPlugin } from '../src/index';
@@ -183,14 +183,14 @@ function getRawDemoInput(): string {
   return $<HTMLTextAreaElement>('tp-input').value;
 }
 
-function renderLowFloor(rawText: string, useSanitizer: boolean): void {
+function renderHtmlOutput(rawText: string, useSanitizer: boolean): void {
   const html = plugin.renderHtml(rawText, {
     sanitizer: useSanitizer ? basicSanitizer : undefined,
   });
   $('tp-low-output').innerHTML = html;
 }
 
-function renderHighCeiling(rawText: string): void {
+function renderTokenizedOutput(rawText: string): void {
   const tokens = plugin.parseTextTokens(rawText);
   $('tp-token-json').textContent = JSON.stringify(tokens, null, 2);
   $('tp-high-output').innerHTML = mapTokensToHtml(tokens);
@@ -199,8 +199,8 @@ function renderHighCeiling(rawText: string): void {
 function setTextDemoFromCurrentItem(item: OQSEItem): void {
   const rawText = getPromptText(item);
   $<HTMLTextAreaElement>('tp-input').value = rawText;
-  renderLowFloor(rawText, true);
-  renderHighCeiling(rawText);
+  renderHtmlOutput(rawText, true);
+  renderTokenizedOutput(rawText);
 }
 
 // -----------------------------------------------------------------------------
@@ -427,27 +427,27 @@ $('btn-report-err').addEventListener('click', () => {
 
 $('btn-render-low').addEventListener('click', () => {
   const raw = getRawDemoInput();
-  renderLowFloor(raw, false);
-  log('Low Floor renderHtml() rendered without sanitizer (unsafe).', 'warn');
+  renderHtmlOutput(raw, false);
+  log('Unsafe renderHtml() output rendered without sanitizer.', 'warn');
 });
 
 $('btn-render-low-safe').addEventListener('click', () => {
   const raw = getRawDemoInput();
-  renderLowFloor(raw, true);
-  log('Low Floor renderHtml() rendered with custom sanitizer.', 'ok');
+  renderHtmlOutput(raw, true);
+  log('Sanitized renderHtml() output rendered with custom sanitizer.', 'ok');
 });
 
 $('btn-render-high').addEventListener('click', () => {
   const raw = getRawDemoInput();
-  renderHighCeiling(raw);
-  log('High Ceiling parseTextTokens() rendered via manual token mapping.', 'ok');
+  renderTokenizedOutput(raw);
+  log('Tokenized parseTextTokens() output rendered via manual mapping.', 'ok');
 });
 
 $('btn-xss-alert').addEventListener('click', () => {
   $<HTMLTextAreaElement>('tp-input').value = XSS_PAYLOAD;
-  renderLowFloor(XSS_PAYLOAD, false);
-  renderHighCeiling(XSS_PAYLOAD);
-  log('XSS demo executed: unsafe Low Floor output may trigger alert().', 'warn');
+  renderHtmlOutput(XSS_PAYLOAD, false);
+  renderTokenizedOutput(XSS_PAYLOAD);
+  log('XSS demo executed: unsafe HTML output may trigger alert().', 'warn');
 });
 
 // -----------------------------------------------------------------------------

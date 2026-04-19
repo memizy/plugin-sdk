@@ -595,10 +595,10 @@ plugin.clearItemTimer(itemId: string): this
 
 #### Text Processing API
 
-The SDK now exposes a **Low Floor, High Ceiling** text processing API.
+The SDK exposes a text processing API with explicit unsafe/sanitized HTML rendering and tokenized parsing.
 
-- `parseTextTokens(rawText)` gives structured tokens (`text`, `blank`, `asset`) for advanced custom renderers.
-- `renderHtml(rawText, options)` returns a basic HTML string for quick integration.
+- `renderHtml(rawText, options)` returns HTML; without `options.sanitizer`, the output is unsafe.
+- `parseTextTokens(rawText)` returns structured tokens (`text`, `blank`, `asset`) for token-driven UIs.
 
 ```typescript
 // Parse raw text with <asset:key /> and <blank:key /> tags into typed tokens.

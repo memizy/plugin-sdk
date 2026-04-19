@@ -504,7 +504,7 @@ export class MemizyPlugin {
   // =========================================================================
 
   /**
-   * [HIGH CEILING] Parses raw OQSE text into safe tokens.
+    * [TOKENIZED] Parses raw OQSE text into safe tokens.
    * Automatically resolves asset keys to MediaObjects.
    */
   parseTextTokens(rawText: string): import('../types/messages').OQSETextToken[] {
@@ -540,7 +540,7 @@ export class MemizyPlugin {
   }
 
   /**
-   * [LOW FLOOR] Renders OQSE text directly to HTML.
+    * [HTML OUTPUT] Renders OQSE text directly to HTML.
    * Converts <asset:key /> tags into <img>, <audio>, or <video> elements.
    * Accepts optional custom Markdown parsers or sanitizers.
    */
