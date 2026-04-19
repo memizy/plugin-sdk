@@ -4,1033 +4,439 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Memizy Plugin SDK v0.2.1 &mdash; Playground Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
-
-      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-      :root {
-        --color-primary-blue: #1E88E5;
-        --color-primary-blue-dark: #1565C0;
-        --color-accent-orange: #FF6F00;
-        --color-accent-orange-light: #FF8F00;
-        --color-accent-orange-dark: #E65100;
-        --color-off-white: #F8F9FA;
-        --color-text-dark: #212529;
-        --color-text-gray: #6C757D;
-        --surface: #ffffff;
-        --surface-soft: #f9fbff;
-        --border: #dce3ee;
-        --green: #2e7d32;
-        --red: #c62828;
-        --amber: #ef6c00;
-        --purple: #7e57c2;
-        --b0: #e5e7eb;
-        --b1: #fde68a;
-        --b2: #86efac;
-        --b3: #6ee7b7;
-        --b4: #34d399;
-        --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.08);
-        --shadow-soft-hover: 0 8px 32px rgba(0, 0, 0, 0.12);
-        --radius-lg: 16px;
-        --radius-md: 12px;
-        --radius-sm: 10px;
-      }
-
-      body {
-        font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
-        color: var(--color-text-dark);
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 18px;
-        padding: 26px 14px 88px;
-        background:
-          radial-gradient(1200px 500px at -10% -20%, #e7f3ff 0%, transparent 56%),
-          radial-gradient(1000px 460px at 110% -16%, #fff1de 0%, transparent 52%),
-          var(--color-off-white);
-      }
-
-      header,
-      .tab-bar,
-      .tab-content,
-      #welcome-screen,
-      #console-panel {
-        width: 100%;
-        max-width: 920px;
-      }
-
-      header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 14px 16px;
-        border-radius: var(--radius-lg);
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.92);
-        backdrop-filter: blur(8px);
-        box-shadow: var(--shadow-soft);
-      }
-
-      header h1 {
-        font-size: 1.18rem;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        color: #15304f;
-      }
-
-      .badge {
-        font-size: 0.66rem;
-        font-weight: 700;
-        padding: 3px 9px;
-        border-radius: 999px;
-        letter-spacing: 0.03em;
-      }
-
-      .b-orange {
-        color: #fff;
-        background: linear-gradient(135deg, var(--color-accent-orange), var(--color-accent-orange-light));
-      }
-
-      .b-green {
-        color: #0f5a2f;
-        background: #d8f8e5;
-      }
-
-      .b-blue {
-        color: #113f8a;
-        background: #dbeafe;
-      }
-
-      .set-title-display {
-        margin-left: auto;
-        font-size: 0.8rem;
-        color: var(--color-text-gray);
-        max-width: 260px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .tab-bar {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 8px;
-        padding: 8px;
-        background: rgba(255, 255, 255, 0.9);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-soft);
-      }
-
-      .tab-bar button {
-        border: 1px solid transparent;
-        border-radius: var(--radius-sm);
-        background: transparent;
-        color: #3f566d;
-        font-size: 0.82rem;
-        font-weight: 700;
-        padding: 10px 12px;
-        transition: all 0.18s ease;
-      }
-
-      .tab-bar button:hover {
-        border-color: #c9d9ef;
-        background: #f4f8ff;
-      }
-
-      .tab-bar button.active {
-        color: #fff;
-        border-color: transparent;
-        background: linear-gradient(135deg, var(--color-accent-orange), var(--color-accent-orange-light));
-        box-shadow: 0 6px 16px rgba(255, 111, 0, 0.26);
-      }
-
-      .tab-content {
-        display: none;
-        flex-direction: column;
-        gap: 14px;
-        animation: scale-in 0.2s ease-out;
-      }
-
-      .tab-content.active { display: flex; }
-
-      #welcome-screen,
-      .panel,
-      #card-area {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-soft);
-      }
-
-      #welcome-screen {
-        text-align: center;
-        padding: 48px 34px;
-      }
-
-      #welcome-screen h2 {
-        font-size: 1.7rem;
-        font-weight: 900;
-        letter-spacing: -0.03em;
-        margin-bottom: 10px;
-      }
-
-      #welcome-screen p {
-        color: var(--color-text-gray);
-        margin-bottom: 22px;
-        line-height: 1.65;
-      }
-
-      .gear-hint {
-        display: block;
-        font-size: 2.4rem;
-        margin-bottom: 12px;
-        animation: float 3s ease-in-out infinite;
-      }
-
-      .welcome-actions {
-        display: flex;
-        justify-content: center;
-        flex-wrap: wrap;
-        gap: 10px;
-      }
-
-      .panel { padding: 18px; }
-
-      .panel-title {
-        font-size: 0.72rem;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: #59708a;
-        margin-bottom: 12px;
-      }
-
-      #card-area {
-        min-height: 260px;
-        padding: 38px 24px 30px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        gap: 12px;
-        position: relative;
-      }
-
-      .item-badge {
-        font-size: 0.64rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        border-radius: 999px;
-        padding: 4px 10px;
-        position: absolute;
-        top: 14px;
-        left: 14px;
-      }
-
-      .item-badge.flashcard {
-        background: #ede9fe;
-        color: #5b21b6;
-      }
-
-      .item-badge.mcq-single {
-        background: #dbeafe;
-        color: #1e40af;
-      }
-
-      .item-pos {
-        position: absolute;
-        top: 14px;
-        right: 14px;
-        font-size: 0.74rem;
-        font-weight: 600;
-        color: var(--color-text-gray);
-      }
-
-      .item-question {
-        max-width: 640px;
-        font-size: 1.48rem;
-        line-height: 1.38;
-        letter-spacing: -0.01em;
-        font-weight: 800;
-        color: #152540;
-      }
-
-      .item-answer {
-        width: 100%;
-        max-width: 640px;
-        padding: 14px 16px;
-        border-radius: var(--radius-sm);
-        border: 1px solid #b8ebc3;
-        background: #f3fff7;
-        color: #1d4e2d;
-        text-align: left;
-        display: none;
-      }
-
-      #item-asset-img {
-        max-width: 320px;
-        max-height: 170px;
-        border-radius: 12px;
-        object-fit: contain;
-        display: none;
-      }
-
-      .mcq-options {
-        width: 100%;
-        max-width: 640px;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-      }
-
-      .option-btn {
-        border: 1px solid #d0dceb;
-        border-radius: 11px;
-        background: #fff;
-        text-align: left;
-        font-size: 0.89rem;
-        font-weight: 600;
-        line-height: 1.35;
-        color: #1e334a;
-        padding: 12px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        transition: all 0.16s ease;
-      }
-
-      .option-btn:hover:not(:disabled) {
-        border-color: var(--color-accent-orange);
-        background: #fff8ef;
-      }
-
-      .option-btn:disabled { cursor: default; }
-      .option-btn.opt-correct { border-color: #5fc87a; background: #eefff2; color: #1f6b37; }
-      .option-btn.opt-wrong { border-color: #ee8d8d; background: #fff1f1; color: #aa2f2f; }
-
-      .opt-ltr {
-        width: 22px;
-        height: 22px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 6px;
-        flex-shrink: 0;
-        font-size: 0.72rem;
-        font-weight: 800;
-        color: #27466a;
-        background: #edf4ff;
-      }
-
-      .bucket-bar {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-wrap: wrap;
-        gap: 7px;
-      }
-
-      .bucket-bar span {
-        font-size: 0.72rem;
-        font-weight: 700;
-        color: #6a7f94;
-      }
-
-      .bdot {
-        width: 26px;
-        height: 9px;
-        border-radius: 999px;
-        border: 1px solid transparent;
-        transition: transform 0.2s;
-      }
-
-      .bdot.b0 { background: var(--b0); }
-      .bdot.b1 { background: var(--b1); }
-      .bdot.b2 { background: var(--b2); }
-      .bdot.b3 { background: var(--b3); }
-      .bdot.b4 { background: var(--b4); }
-      .bdot.cur { border-color: #1d2f42; transform: scaleY(1.6); }
-
-      .controls-row {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 8px;
-      }
-
-      .tp-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-
-      .tp-col {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        min-width: 0;
-      }
-
-      .tp-output {
-        min-height: 128px;
-        border-radius: var(--radius-sm);
-        border: 1px solid #d8e2ef;
-        background: #fbfdff;
-        padding: 12px;
-        overflow: auto;
-      }
-
-      .tp-json {
-        border-radius: var(--radius-sm);
-        background: #0e1b30;
-        color: #d4e5ff;
-        font-size: 0.74rem;
-        line-height: 1.5;
-        max-height: 196px;
-        overflow: auto;
-        padding: 12px;
-        white-space: pre-wrap;
-      }
-
-      .danger-note {
-        color: #9a2d2d;
-        background: #fff1f1;
-        border: 1px solid #ffc5c5;
-        border-radius: var(--radius-sm);
-        padding: 10px 12px;
-        font-size: 0.79rem;
-      }
-
-      .waiting { font-size: 1.9rem; }
-
-      .waiting-label {
-        font-size: 0.92rem;
-        color: var(--color-text-gray);
-      }
-
-      .set-meta-row,
-      .form-row,
-      .asset-upload-row,
-      .flex-gap {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-      }
-
-      .set-meta-row,
-      .asset-upload-row { align-items: flex-end; }
-
-      .form-group {
-        display: flex;
-        flex: 1;
-        min-width: 130px;
-        flex-direction: column;
-        gap: 6px;
-      }
-
-      .form-group label {
-        font-size: 0.73rem;
-        font-weight: 700;
-        color: #5f7489;
-      }
-
-      .form-group input,
-      .form-group textarea,
-      .form-group select {
-        border: 1px solid #d2ddeb;
-        border-radius: 10px;
-        background: #fcfdff;
-        color: var(--color-text-dark);
-        font-family: inherit;
-        font-size: 0.88rem;
-        outline: none;
-        padding: 9px 11px;
-        transition: all 0.18s ease;
-        resize: vertical;
-      }
-
-      .form-group input:focus,
-      .form-group textarea:focus,
-      .form-group select:focus,
-      .mcq-opt-row input[type="text"]:focus {
-        border-color: var(--color-primary-blue);
-        background: #fff;
-        box-shadow: 0 0 0 3px rgba(30, 136, 229, 0.1);
-      }
-
-      .mcq-opts-editor {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-
-      .mcq-opt-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .mcq-opt-row .ol {
-        width: 14px;
-        font-size: 0.73rem;
-        font-weight: 800;
-        color: #70879f;
-        flex-shrink: 0;
-      }
-
-      .mcq-opt-row input[type="radio"] {
-        width: 16px;
-        height: 16px;
-        accent-color: var(--color-primary-blue);
-        flex-shrink: 0;
-      }
-
-      .mcq-opt-row input[type="text"] {
-        flex: 1;
-        border: 1px solid #d2ddeb;
-        border-radius: 8px;
-        background: #fcfdff;
-        color: var(--color-text-dark);
-        font-size: 0.84rem;
-        padding: 8px 10px;
-        outline: none;
-      }
-
-      .item-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-
-      .item-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 12px;
-        border: 1px solid #dce5f1;
-        border-radius: 10px;
-        background: #fbfdff;
-      }
-
-      .irt {
-        padding: 3px 8px;
-        border-radius: 6px;
-        font-size: 0.66rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        flex-shrink: 0;
-      }
-
-      .irt.flashcard { background: #ede9fe; color: #5b21b6; }
-      .irt.mcq-single { background: #dbeafe; color: #1e40af; }
-
-      .irq {
-        flex: 1;
-        font-size: 0.86rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .bpill {
-        padding: 2px 7px;
-        border-radius: 6px;
-        font-size: 0.7rem;
-        font-weight: 700;
-      }
-
-      .bp0 { background: var(--b0); }
-      .bp1 { background: var(--b1); }
-      .bp2 { background: var(--b2); color: #166534; }
-      .bp3 { background: var(--b3); color: #166534; }
-      .bp4 { background: var(--b4); color: #166534; }
-
-      .asset-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-        gap: 12px;
-      }
-
-      .asset-card {
-        display: flex;
-        flex-direction: column;
-        border: 1px solid #d7e2f0;
-        border-radius: 11px;
-        background: #fbfdff;
-        overflow: hidden;
-      }
-
-      .asset-card .athumb {
-        height: 94px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #eef5ff;
-        overflow: hidden;
-      }
-
-      .asset-card .athumb img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-
-      .asset-card .ainfo {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        padding: 8px 10px;
-      }
-
-      .asset-card .akey {
-        font-size: 0.72rem;
-        font-weight: 700;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .asset-card .aact { display: flex; gap: 6px; }
-
-      #assets-empty {
-        color: var(--color-text-gray);
-        font-size: 0.85rem;
-        text-align: center;
-        padding: 18px 0;
-      }
-
-      #progress-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.82rem;
-      }
-
-      #progress-table th {
-        text-align: left;
-        padding: 9px 12px;
-        background: #f1f6fd;
-        color: #60788f;
-        border-bottom: 1px solid #d8e4f3;
-        font-size: 0.72rem;
-        font-weight: 800;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-      }
-
-      #progress-table td {
-        padding: 8px 12px;
-        border-bottom: 1px solid #ebf1f8;
-        vertical-align: middle;
-      }
-
-      #progress-table tr:last-child td { border-bottom: none; }
-      #progress-table tr:hover td { background: #f8fbff; }
-
-      .bb {
-        width: 24px;
-        height: 24px;
-        border-radius: 6px;
-        font-size: 0.78rem;
-        font-weight: 800;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .bb0 { background: var(--b0); }
-      .bb1 { background: var(--b1); }
-      .bb2 { background: var(--b2); color: #166534; }
-      .bb3 { background: var(--b3); color: #166534; }
-      .bb4 { background: var(--b4); color: #166534; }
-
-      .btn {
-        border: 1px solid transparent;
-        border-radius: 10px;
-        font-size: 0.83rem;
-        font-weight: 700;
-        line-height: 1;
-        white-space: nowrap;
-        padding: 10px 15px;
-        transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
-      }
-
-      .btn:hover:not(:disabled) {
-        cursor: pointer;
-        transform: translateY(-1px);
-        box-shadow: 0 8px 16px rgba(16, 24, 40, 0.12);
-      }
-
-      .btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-
-      .btn-primary {
-        color: #fff;
-        background: linear-gradient(135deg, var(--color-accent-orange), var(--color-accent-orange-light));
-      }
-
-      .btn-secondary {
-        color: #274662;
-        background: #f3f7fd;
-        border-color: #d4dfee;
-      }
-
-      .btn-success {
-        color: #fff;
-        background: #2e7d32;
-      }
-
-      .btn-danger {
-        color: #fff;
-        background: #d84343;
-      }
-
-      .btn-ghost {
-        color: #536a82;
-        background: transparent;
-        border-color: #d2deed;
-      }
-
-      .btn-purple {
-        color: #fff;
-        background: #7e57c2;
-      }
-
-      .btn-amber {
-        color: #fff;
-        background: var(--amber);
-      }
-
-      .btn-blue {
-        color: #fff;
-        background: var(--color-primary-blue);
-      }
-
-      .btn-sm {
-        border-radius: 8px;
-        font-size: 0.76rem;
-        padding: 7px 11px;
-      }
-
-      #console-panel {
-        border-radius: var(--radius-lg);
-        border: 1px solid #21344f;
-        background: #0d1a2f;
-        color: #9db9db;
-        font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
-        font-size: 0.75rem;
-        line-height: 1.75;
-        max-height: 190px;
-        overflow-y: auto;
-        padding: 14px 16px;
-      }
-
-      #console-panel .log-ts { color: #4f6a8a; margin-right: 8px; }
-      #console-panel .log-ok { color: #7ddf9a; }
-      #console-panel .log-err { color: #ffa2a2; }
-      #console-panel .log-inf { color: #8cc8ff; }
-      #console-panel .log-warn { color: #ffda88; }
-
-      .text-muted {
-        color: var(--color-text-gray);
-        font-size: 0.81rem;
-      }
-
-      .w100 { width: 100%; }
+      body { font-family: "Inter", sans-serif; background-color: #F8F9FA; color: #1E293B; margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
       .hidden { display: none !important; }
+      
+      /* Sidebar Tabs */
+      .tab { width: 100%; text-align: left; padding: 12px 16px; border-radius: 8px; font-weight: 600; color: #475569; transition: all 0.2s; margin-bottom: 4px; display: flex; align-items: center; gap: 12px; cursor: pointer; border: none; background: transparent; font-family: inherit; }
+      .tab:hover { background-color: #F1F5F9; color: #0F172A; }
+      .tab.active { background-color: #FF6F00; color: white; box-shadow: 0 4px 12px rgba(255, 111, 0, 0.2); }
+      
+      /* Panels */
+      .tab-content { display: none; flex-direction: column; gap: 24px; padding: 24px; height: 100%; overflow-y: auto; }
+      .tab-content.active { display: flex; animation: scale-in 0.2s ease-out; }
+      @keyframes scale-in { 0% { opacity: 0; transform: scale(0.98); } 100% { opacity: 1; transform: scale(1); } }
+      .card-panel { background: white; border: 1px solid #E2E8F0; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+      .card-panel-title { font-size: 0.85rem; font-weight: 800; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; display: block; }
+      
+      /* Buttons */
+      .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; border-radius: 10px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; border: none; font-family: inherit; }
+      .btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+      .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+      .btn-primary { background: #FF6F00; color: white; border: 1px solid #E65100; }
+      .btn-secondary { background: #E2E8F0; color: #1E293B; border: 1px solid #CBD5E1; }
+      .btn-success { background: #16A34A; color: white; border: 1px solid #15803D; }
+      .btn-danger { background: #DC2626; color: white; border: 1px solid #B91C1C; }
+      .btn-ghost { background: transparent; color: #475569; }
+      .btn-ghost:hover:not(:disabled) { background: #F1F5F9; color: #0F172A; box-shadow: none; }
+      .btn-purple { background: #8B5CF6; color: white; border: 1px solid #7C3AED; }
+      .btn-amber { background: #F59E0B; color: white; border: 1px solid #D97706; }
+      .btn-blue { background: #3B82F6; color: white; border: 1px solid #2563EB; }
+      .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; }
+      
+      /* Dots & Pills mapped to buckets */
+      .bdot { width: 12px; height: 12px; border-radius: 6px; display: inline-block; background: #e5e7eb; transition: transform 0.2s; margin: 0 2px;}
+      .bdot.cur { transform: scale(1.4); border: 2px solid #1d2f42; }
+      .bdot.b0 { background: #E5E7EB; }
+      .bdot.b1 { background: #FDE68A; }
+      .bdot.b2 { background: #86EFAC; }
+      .bdot.b3 { background: #6EE7B7; }
+      .bdot.b4 { background: #34D399; }
+      .bpill { padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 0.75rem; display: inline-flex;}
+      .bp0 { background: #E5E7EB; color: #4B5563; }
+      .bp1 { background: #FDE68A; color: #92400E; }
+      .bp2 { background: #86EFAC; color: #166534; }
+      .bp3 { background: #6EE7B7; color: #166534; }
+      .bp4 { background: #34D399; color: #166534; }
+      .bb { padding: 2px 8px; border-radius: 6px; font-weight: bold; font-size: 0.75rem; display: inline-block; }
+      .bb0 { background: #E5E7EB; color: #4B5563; }
+      .bb1 { background: #FDE68A; color: #92400E; }
+      .bb2 { background: #86EFAC; color: #166534; }
+      .bb3 { background: #6EE7B7; color: #166534; }
+      .bb4 { background: #34D399; color: #166534; }
 
-      code {
-        border-radius: 5px;
-        background: #edf4fd;
-        color: #203a58;
-        font-family: "Cascadia Code", Consolas, monospace;
-        font-size: 0.82em;
-        padding: 1px 5px;
-      }
+      /* Dynamic Elements */
+      .item-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: white; border: 1px solid #E2E8F0; border-radius: 10px; transition: all 0.2s; }
+      .item-row:hover { border-color: #CBD5E1; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+      .irq { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.9rem; font-weight: 500; color: #334155; }
+      
+      .asset-card { display: flex; flex-direction: column; background: white; border: 1px solid #E2E8F0; border-radius: 12px; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; }
+      .asset-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-color: #CBD5E1; }
+      .athumb { height: 140px; background: #F8FAFC; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #E2E8F0; overflow: hidden; }
+      .athumb img { width: 100%; height: 100%; object-fit: cover; }
+      .ainfo { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+      .akey { font-size: 0.85rem; font-weight: 600; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .aact { display: flex; gap: 8px; }
 
-      @keyframes float {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-8px); }
-      }
+      /* Study Card Overrides */
+      .irt { padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+      .irt.flashcard { background: #EDE9FE; color: #5B21B6; }
+      .irt.mcq-single { background: #DBEAFE; color: #1E40AF; }
+      .item-question { font-size: 1.5rem; font-weight: 800; color: #0F172A; text-align: center; margin-bottom: 24px; line-height: 1.4; }
+      .item-answer { font-size: 1.25rem; font-weight: 500; color: #16A34A; text-align: center; padding: 20px; background: #F0FDF4; border-radius: 12px; border: 2px solid #BBF7D0; margin-top: 16px; }
+      .option-btn { width: 100%; text-align: left; padding: 14px 20px; border: 2px solid #E2E8F0; border-radius: 12px; background: white; font-weight: 600; font-size: 1.05rem; color: #334155; transition: all 0.2s; cursor: pointer; display: flex; align-items: center; gap: 16px; margin-bottom: 12px;}
+      .option-btn:hover:not(:disabled) { border-color: #94A3B8; background: #F8FAFC; transform: scale(1.01); }
+      .option-btn.opt-correct { border-color: #22C55E; background: #F0FDF4; color: #166534; }
+      .option-btn.opt-wrong { border-color: #EF4444; background: #FEF2F2; color: #991B1B; }
+      .opt-ltr { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; height: 32px; border-radius: 8px; background: #F1F5F9; color: #64748B; font-weight: 800; font-size: 0.9rem; }
+      .option-btn.opt-correct .opt-ltr { background: #DCFCE7; color: #166534; }
+      .option-btn.opt-wrong .opt-ltr { background: #FEE2E2; color: #991B1B; }
+      .item-pos { position: absolute; top: 16px; right: 16px; font-size: 0.85rem; font-weight: 700; color: #94A3B8; background: #F1F5F9; padding: 4px 10px; border-radius: 999px; }
 
-      @keyframes scale-in {
-        from { transform: scale(0.98); opacity: 0; }
-        to { transform: scale(1); opacity: 1; }
-      }
+      /* Form Inputs */
+      .form-input { width: 100%; padding: 10px 14px; border: 1px solid #CBD5E1; border-radius: 8px; font-size: 0.95rem; font-family: inherit; transition: border-color 0.2s; background: white; }
+      .form-input:focus { outline: none; border-color: #FF6F00; box-shadow: 0 0 0 3px rgba(255, 111, 0, 0.1); }
+      .form-label { font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 6px; display: block; }
 
-      @media (max-width: 900px) {
-        .tp-grid { grid-template-columns: 1fr; }
-        .mcq-options { grid-template-columns: 1fr; }
-        .item-question { font-size: 1.26rem; }
-      }
-
-      @media (max-width: 660px) {
-        body { padding: 16px 10px 70px; }
-        header { flex-wrap: wrap; }
-        .set-title-display { width: 100%; max-width: none; margin-left: 0; }
-        .tab-bar { grid-template-columns: 1fr 1fr; }
-      }
+      /* Console */
+      #console-panel { background: #0F172A; color: #E2E8F0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85rem; padding: 12px 16px; overflow-y: auto; height: 180px; border-top: 1px solid #1E293B; }
+      #console-panel p { margin: 0; padding: 2px 0; }
+      #console-panel .log-ts { color: #4F6A8A; margin-right: 8px; }
+      #console-panel .log-ok { color: #7DDF9A; }
+      #console-panel .log-err { color: #FFA2A2; }
+      #console-panel .log-inf { color: #8CC8FF; }
+      #console-panel .log-warn { color: #FFDA88; }
+      
+      @keyframes bounce { 0%, 100% { transform: translateY(-5%); } 50% { transform: translateY(5%); } }
+      .animate-bounce { animation: bounce 3s ease-in-out infinite; display: inline-block; }
     </style>
   </head>
   <body>
-
-    <header>
-      <h1>Memizy Plugin Playground</h1>
-      <span class="badge b-orange">v0.2.1</span>
-      <span class="badge b-green" id="badge-standalone">&#9679; Standalone</span>
-      <span class="set-title-display" id="header-set-title">No set loaded</span>
-    </header>
-
-    <div id="welcome-screen">
-      <span class="gear-hint">&#9881;&#65039;</span>
-      <h2>Start a study session</h2>
-      <p>
-        Use the <strong>&#9881; gear button</strong> (bottom-right) to import a <code>.oqse</code> ZIP or <code>.oqse.json</code>,<br/>
-        or load the built-in sample set to explore the full SDK flow.
-      </p>
-      <div class="welcome-actions">
-        <button class="btn btn-primary" id="btn-load-samples">Load Sample Set</button>
-        <button class="btn btn-secondary" id="btn-new-empty">Start Empty Set</button>
-      </div>
-    </div>
-
-    <div class="tab-bar hidden" id="tab-bar">
-      <button class="tab active" data-tab="study">Study</button>
-      <button class="tab" data-tab="edit">Edit Set</button>
-      <button class="tab" data-tab="assets">Assets</button>
-      <button class="tab" data-tab="progress">Progress</button>
-    </div>
-
-    <!-- STUDY -->
-    <div class="tab-content hidden" id="tab-study">
-
-      <div id="card-area">
-        <div class="waiting">&#9203;</div>
-        <div class="waiting-label">Waiting for session&hellip;</div>
-      </div>
-
-      <div class="panel" style="padding:14px 20px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <span class="panel-title" style="margin-bottom:0">Leitner Buckets</span>
-          <span class="text-muted" id="session-stats">0 answered</span>
-        </div>
-        <div class="bucket-bar">
-          <span>B0</span><div class="bdot b0" id="bdot0"></div>
-          <span>B1</span><div class="bdot b1" id="bdot1"></div>
-          <span>B2</span><div class="bdot b2" id="bdot2"></div>
-          <span>B3</span><div class="bdot b3" id="bdot3"></div>
-          <span>B4</span><div class="bdot b4" id="bdot4"></div>
-          <span id="blabel" class="text-muted" style="margin-left:8px;font-size:.72rem;"></span>
-        </div>
-      </div>
-
-      <div class="controls-row">
-        <button class="btn btn-purple"    id="btn-reveal"  disabled>Reveal Answer</button>
-        <button class="btn btn-success"   id="btn-correct" disabled>Correct</button>
-        <button class="btn btn-danger"    id="btn-wrong"   disabled>Wrong</button>
-        <button class="btn btn-ghost"     id="btn-skip"    disabled>Skip</button>
-        <button class="btn btn-secondary" id="btn-next"    disabled>Next &rarr;</button>
-      </div>
-      <div class="controls-row">
-        <button class="btn btn-ghost btn-sm"   id="btn-exit"        disabled>Exit Session</button>
-        <button class="btn btn-success btn-sm" id="btn-restart"     disabled>Restart</button>
-        <button class="btn btn-amber btn-sm"   id="btn-resize-test">requestResize()</button>
-        <button class="btn btn-ghost btn-sm"   id="btn-report-err" >reportError()</button>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">Text Processing Demo (Unsafe and Sanitized)</div>
-        <p class="text-muted" style="margin-bottom:10px;">
-          This panel demonstrates unsafe and sanitized <code>renderHtml()</code> output plus tokenized output from <code>parseTextTokens()</code>.
-        </p>
-        <div class="danger-note" style="margin-bottom:10px;">
-          Security demo: the "Run XSS alert demo" button renders unsafe HTML intentionally so you can see why a sanitizer is required.
-        </div>
-        <div class="form-group w100" style="margin-bottom:10px;">
-          <label>Raw Content</label>
-          <textarea id="tp-input" rows="3" placeholder="Try: Solve: &lt;blank:answer /&gt; and inspect &lt;asset:demo-image /&gt;"></textarea>
-        </div>
-        <div class="flex-gap" style="margin-bottom:10px;">
-          <button class="btn btn-secondary btn-sm" id="btn-render-low">Render Unsafe HTML</button>
-          <button class="btn btn-success btn-sm" id="btn-render-low-safe">Render Sanitized HTML</button>
-          <button class="btn btn-blue btn-sm" id="btn-render-high">Render Tokenized View</button>
-          <button class="btn btn-danger btn-sm" id="btn-xss-alert">Run XSS Alert Demo</button>
-        </div>
-        <div class="tp-grid" style="margin-bottom:10px;">
-          <div class="tp-col">
-            <label class="text-muted">Unsafe HTML Output</label>
-            <div id="tp-low-output" class="tp-output"></div>
+    <div class="flex h-full w-full">
+      <!-- Sidebar -->
+      <aside class="w-64 bg-white border-r border-slate-200 flex flex-col z-10 shadow-sm shrink-0">
+        <div class="p-6 border-b border-slate-100">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="text-3xl">🚀</span>
+            <h1 class="text-2xl font-black text-slate-800 tracking-tight leading-none">Memizy<br/><span class="text-orange-500">Studio</span></h1>
           </div>
-          <div class="tp-col">
-            <label class="text-muted">Tokenized Output (Mapped)</label>
-            <div id="tp-high-output" class="tp-output"></div>
+          <div class="flex flex-wrap gap-2 mt-4">
+            <span class="bg-orange-100 text-orange-700 text-xs font-bold px-2 py-1 rounded-md">v0.2.1</span>
+            <span id="badge-standalone" class="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-md">Standalone</span>
           </div>
         </div>
-        <div class="tp-col">
-          <label class="text-muted">Token JSON</label>
-          <pre id="tp-token-json" class="tp-json">[]</pre>
-        </div>
-      </div>
 
-    </div>
-
-    <!-- EDIT -->
-    <div class="tab-content hidden" id="tab-edit">
-
-      <div class="panel">
-        <div class="panel-title">Set Metadata</div>
-        <div class="set-meta-row">
-          <div class="form-group" style="flex:2">
-            <label>Title</label>
-            <input type="text" id="input-set-title" placeholder="My Study Set" />
+        <div class="px-4 pt-6 pb-2">
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 px-2">Navigation</div>
+          <div id="tab-bar" class="hidden flex-col gap-1">
+            <button class="tab active" data-tab="study">📘 Study Mode</button>
+            <button class="tab" data-tab="text">🧪 Text Processing</button>
+            <button class="tab" data-tab="edit">✏️ Edit Set</button>
+            <button class="tab" data-tab="assets">🖼️ Assets</button>
+            <button class="tab" data-tab="progress">📊 Progress</button>
           </div>
-          <div class="form-group" style="flex:3">
-            <label>Description</label>
-            <input type="text" id="input-set-desc" placeholder="Short description&hellip;" />
-          </div>
-          <button class="btn btn-primary" id="btn-save-meta">Save Meta</button>
         </div>
-        <div style="margin-top:10px;" class="flex-gap">
-          <button class="btn btn-secondary btn-sm" id="btn-export-json">Export .oqse.json</button>
-          <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
-            Import .oqse.json <input type="file" id="input-import-json" accept=".json,.oqse" hidden />
-          </label>
-          <span class="text-muted" id="edit-item-count"></span>
-        </div>
-      </div>
 
-      <div class="panel">
-        <div class="panel-title">Items (<span id="items-count">0</span>)</div>
-        <div id="item-list">
-          <div class="text-muted" style="text-align:center;padding:20px;">No items yet.</div>
+        <div class="mt-auto p-4 border-t border-slate-100 bg-slate-50">
+          <div class="text-xs font-semibold text-slate-500 mb-1">Current Set:</div>
+          <div id="header-set-title" class="text-sm font-bold text-slate-800 truncate">No set loaded</div>
         </div>
-      </div>
+      </aside>
 
-      <div class="panel">
-        <div class="panel-title">Add New Item</div>
-        <div style="display:flex;flex-direction:column;gap:14px;">
-          <div class="form-row">
-            <div class="form-group" style="max-width:190px;">
-              <label>Item Type</label>
-              <select id="select-item-type">
-                <option value="flashcard">Flashcard</option>
-                <option value="mcq-single">MCQ &mdash; Single answer</option>
-              </select>
-            </div>
-            <div class="form-group" style="flex:3;">
-              <label>Question</label>
-              <input type="text" id="input-item-question" placeholder="Enter question text&hellip;" />
+      <!-- Main Area -->
+      <main class="flex-1 flex flex-col h-full bg-slate-50 relative overflow-hidden">
+        
+        <!-- Welcome Screen -->
+        <div id="welcome-screen" class="absolute inset-0 z-20 bg-slate-50 flex items-center justify-center">
+          <div class="text-center max-w-lg p-10 bg-white rounded-3xl shadow-xl border border-slate-100">
+            <span class="text-6xl block mb-6 animate-bounce">⚙️</span>
+            <h2 class="text-3xl font-black text-slate-800 mb-4 tracking-tight">Start a study session</h2>
+            <p class="text-slate-500 mb-8 text-lg leading-relaxed">Welcome to the Memizy Plugin SDK Playground. Load sample data to test the built-in UI components, or start a new blank set.</p>
+            <div class="flex justify-center gap-4">
+              <button id="btn-load-samples" class="btn btn-primary text-lg px-6 py-3 shadow-lg shadow-orange-500/30">Load Sample Set</button>
+              <button id="btn-new-empty" class="btn btn-secondary text-lg px-6 py-3">New Empty Set</button>
             </div>
           </div>
+        </div>
 
-          <div id="fc-fields">
-            <div class="form-group w100">
-              <label>Answer</label>
-              <textarea id="input-fc-answer" placeholder="Enter the answer&hellip;" rows="2"></textarea>
-            </div>
-          </div>
+        <!-- Scrollable Tab Content Wrapper -->
+        <div class="flex-1 overflow-x-hidden overflow-y-auto relative">
+          
+          <!-- STUDY TAB -->
+          <div class="tab-content hidden" id="tab-study">
+            <div class="max-w-4xl mx-auto w-full flex flex-col gap-6">
+              
+              <!-- Card Area -->
+              <div id="card-area" class="card-panel relative min-h-[300px] flex flex-col items-center justify-center bg-white">
+                <div class="text-slate-400 font-medium text-lg">Load a set to see cards here.</div>
+              </div>
 
-          <div id="mcq-fields" class="hidden">
-            <div class="form-group">
-              <label>Options <span class="text-muted">(&#128308; = correct answer)</span></label>
-              <div class="mcq-opts-editor">
-                <div class="mcq-opt-row"><span class="ol">A</span><input type="radio" name="copt" value="0" checked /><input type="text" class="mopt" placeholder="Option A" /></div>
-                <div class="mcq-opt-row"><span class="ol">B</span><input type="radio" name="copt" value="1" /><input type="text" class="mopt" placeholder="Option B" /></div>
-                <div class="mcq-opt-row"><span class="ol">C</span><input type="radio" name="copt" value="2" /><input type="text" class="mopt" placeholder="Option C (optional)" /></div>
-                <div class="mcq-opt-row"><span class="ol">D</span><input type="radio" name="copt" value="3" /><input type="text" class="mopt" placeholder="Option D (optional)" /></div>
+              <!-- Action Panel -->
+              <div class="card-panel flex flex-col sm:flex-row justify-between items-center gap-4 bg-white">
+                <div class="flex flex-col">
+                  <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Leitner Buckets</span>
+                  <div class="flex items-center gap-4 mt-2">
+                    <div class="flex items-center gap-1">
+                      <span id="bdot0" class="bdot b0 cur"></span>
+                      <span id="bdot1" class="bdot b1"></span>
+                      <span id="bdot2" class="bdot b2"></span>
+                      <span id="bdot3" class="bdot b3"></span>
+                      <span id="bdot4" class="bdot b4"></span>
+                    </div>
+                    <span id="blabel" class="text-sm font-semibold text-slate-600">Item bucket: B0</span>
+                  </div>
+                </div>
+                <div class="text-sm font-bold text-slate-600 bg-slate-100 border border-slate-200 px-4 py-2 rounded-xl" id="session-stats">0 answered</div>
+              </div>
+
+              <!-- Primary Controls -->
+              <div class="flex justify-center gap-3 flex-wrap">
+                <button id="btn-reveal" class="btn btn-purple px-6" disabled>Reveal Answer</button>
+                <button id="btn-correct" class="btn btn-success px-6" disabled>Correct</button>
+                <button id="btn-wrong" class="btn btn-danger px-6" disabled>Wrong</button>
+                <button id="btn-skip" class="btn btn-secondary px-6" disabled>Skip</button>
+                <button id="btn-next" class="btn bg-slate-800 text-white hover:bg-slate-700 border-slate-900 border px-6 shadow-md" disabled>Next &rarr;</button>
+              </div>
+
+              <!-- Tools -->
+              <div class="card-panel bg-white border border-slate-200 py-5">
+                <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 text-center">Plugin → App Actions</div>
+                <p class="text-sm text-slate-500 text-center mb-4">These actions demonstrate how the plugin sends messages to the host app during a session.</p>
+                <div class="flex justify-center gap-3 flex-wrap">
+                  <button id="btn-exit" class="btn btn-secondary btn-sm border border-slate-300 bg-white" title="Sends EXIT_REQUEST to tell the host the session is finished.">Exit Session</button>
+                  <button id="btn-restart" class="btn btn-secondary btn-sm border border-slate-300 bg-white" title="Restarts the local session loop in the playground UI." disabled>Restart</button>
+                  <button id="btn-resize-test" class="btn btn-secondary btn-sm border border-slate-300 bg-white" title="Sends RESIZE_REQUEST so the host can resize the iframe container.">Request Resize</button>
+                  <button id="btn-report-err" class="btn btn-secondary btn-sm border border-slate-300 bg-white" title="Sends PLUGIN_ERROR with non-fatal diagnostics for host telemetry.">Report Error</button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="form-group">
-            <label>Image asset key <span class="text-muted">(optional &mdash; upload in Assets tab first)</span></label>
-            <input type="text" id="input-item-asset" placeholder="assets/image.png" />
+          <!-- TEXT PROCESSING TAB -->
+          <div class="tab-content hidden" id="tab-text">
+            <div class="max-w-4xl mx-auto w-full flex flex-col gap-6">
+              <div class="card-panel bg-slate-50 border border-slate-200 shadow-inner">
+                <div class="flex items-center gap-2 mb-4">
+                  <span class="text-xl">🧪</span>
+                  <span class="card-panel-title !mb-0 text-slate-700">Text Processing Demo</span>
+                </div>
+                <p class="text-sm text-slate-500 mb-4">Demonstrates unsafe vs sanitized <code class="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-700">renderHtml()</code> and tokenized output from <code class="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-700">parseTextTokens()</code>.</p>
+
+                <div class="bg-red-50 text-red-800 border border-red-200 p-4 rounded-xl text-sm mb-6 shadow-sm">
+                  <strong>Security demo:</strong> The "Run XSS Alert Demo" button renders unsafe HTML intentionally to show why a sanitizer is required.
+                </div>
+
+                <label class="form-label">Raw Content</label>
+                <textarea id="tp-input" class="form-input h-24 mb-4 shadow-inner" placeholder="Type text with <blank:example /> or XML..."></textarea>
+
+                <div class="flex flex-wrap gap-2 mb-6">
+                  <button id="btn-render-low" class="btn btn-secondary border border-slate-300 btn-sm">Render Unsafe HTML</button>
+                  <button id="btn-render-low-safe" class="btn btn-success btn-sm">Render Sanitized HTML</button>
+                  <button id="btn-render-high" class="btn btn-blue btn-sm">Render Tokenized View</button>
+                  <button id="btn-xss-alert" class="btn btn-danger btn-sm">Run XSS Alert Demo</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label class="form-label">Unsafe HTML Output</label>
+                    <div id="tp-low-output" class="bg-white border border-slate-200 rounded-xl p-4 min-h-[100px] shadow-sm"></div>
+                  </div>
+                  <div>
+                    <label class="form-label">Tokenized Output (Mapped)</label>
+                    <div id="tp-high-output" class="bg-white border border-slate-200 rounded-xl p-4 min-h-[100px] shadow-sm"></div>
+                  </div>
+                </div>
+
+                <div class="mt-6">
+                  <label class="form-label">Token JSON</label>
+                  <pre id="tp-token-json" class="bg-slate-900 text-emerald-400 p-4 rounded-xl text-xs overflow-x-auto whitespace-pre-wrap shadow-inner border border-slate-800">[]</pre>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div class="flex-gap">
-            <button class="btn btn-primary" id="btn-add-item">Add Item</button>
-            <button class="btn btn-ghost btn-sm" id="btn-clear-form">Clear</button>
+          <!-- EDIT TAB -->
+          <div class="tab-content hidden" id="tab-edit">
+            <div class="max-w-4xl mx-auto w-full flex flex-col gap-6">
+              
+              <!-- Meta Panel -->
+              <div class="card-panel">
+                <span class="card-panel-title">Set Metadata</span>
+                <div class="flex flex-col sm:flex-row gap-4 items-end">
+                  <div class="flex-1 w-full">
+                    <label class="form-label">Title</label>
+                    <input type="text" id="input-set-title" class="form-input" placeholder="e.g., Biology 101" />
+                  </div>
+                  <div class="flex-[2] w-full">
+                    <label class="form-label">Description</label>
+                    <input type="text" id="input-set-desc" class="form-input" placeholder="A brief description" />
+                  </div>
+                  <button id="btn-save-meta" class="btn btn-primary whitespace-nowrap shadow-md shadow-orange-500/20">Save Meta</button>
+                </div>
+              </div>
+              
+              <!-- Add New Item -->
+              <div class="card-panel bg-white border border-orange-200 shadow-sm relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-400 to-orange-500"></div>
+                <div class="flex items-center gap-2 mb-6">
+                  <span class="text-xl">✨</span>
+                  <span class="card-panel-title !mb-0 text-slate-800">Add New Item</span>
+                </div>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label class="form-label">Type</label>
+                    <select id="select-item-type" class="form-input font-medium text-slate-700 bg-slate-50 border-slate-200">
+                      <option value="flashcard">Flashcard</option>
+                      <option value="mcq-single">Multiple Choice Single</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label">Asset Key (Optional)</label>
+                    <input type="text" id="input-item-asset" class="form-input" placeholder="e.g., demo-image" />
+                  </div>
+                </div>
+
+                <div class="mb-4 pt-2">
+                  <label class="form-label text-slate-800 font-bold">Question / Front Text</label>
+                  <input type="text" id="input-item-question" class="form-input border-slate-300 focus:border-orange-500 focus:ring focus:ring-orange-500/10 text-lg py-3 shadow-inner" placeholder="What is the capital of France?" />
+                </div>
+
+                <div id="fc-fields" class="pt-2">
+                  <label class="form-label text-slate-800 font-bold">Answer / Back Text</label>
+                  <textarea id="input-fc-answer" class="form-input h-24 border-slate-300 focus:border-orange-500 text-lg shadow-inner py-3" placeholder="Paris."></textarea>
+                </div>
+                
+                <div id="mcq-fields" class="hidden bg-slate-50 p-5 rounded-2xl border border-slate-200 mt-4 shadow-inner">
+                  <label class="form-label text-slate-800 font-bold mb-3">Options (Provide exactly 4; mark correct with radio)</label>
+                  <div class="flex flex-col gap-3">
+                    <div class="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+                      <span class="font-bold text-slate-400 w-6 text-center">A</span>
+                      <input type="radio" name="mcq-correct" value="0" checked class="w-5 h-5 text-orange-500 border-slate-300 focus:ring-orange-500" />
+                      <input type="text" id="mcq-opt-0" class="form-input mopt !border-none !shadow-none" placeholder="Option A" />
+                    </div>
+                    <div class="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+                      <span class="font-bold text-slate-400 w-6 text-center">B</span>
+                      <input type="radio" name="mcq-correct" value="1" class="w-5 h-5 text-orange-500 border-slate-300 focus:ring-orange-500" />
+                      <input type="text" id="mcq-opt-1" class="form-input mopt !border-none !shadow-none" placeholder="Option B" />
+                    </div>
+                    <div class="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+                      <span class="font-bold text-slate-400 w-6 text-center">C</span>
+                      <input type="radio" name="mcq-correct" value="2" class="w-5 h-5 text-orange-500 border-slate-300 focus:ring-orange-500" />
+                      <input type="text" id="mcq-opt-2" class="form-input mopt !border-none !shadow-none" placeholder="Option C" />
+                    </div>
+                    <div class="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+                      <span class="font-bold text-slate-400 w-6 text-center">D</span>
+                      <input type="radio" name="mcq-correct" value="3" class="w-5 h-5 text-orange-500 border-slate-300 focus:ring-orange-500" />
+                      <input type="text" id="mcq-opt-3" class="form-input mopt !border-none !shadow-none" placeholder="Option D" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex gap-3 mt-8 items-center">
+                  <button id="btn-add-item" class="btn btn-primary px-8 shadow-lg shadow-orange-500/30">Add to Set</button>
+                  <button id="btn-clear-form" class="btn btn-ghost">Clear Form</button>
+                </div>
+              </div>
+
+              <!-- Items List -->
+              <div class="card-panel">
+                <div class="flex justify-between items-center mb-4 pb-4 border-b border-slate-100">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">📂</span>
+                    <span class="card-panel-title !mb-0">Items in Set (<span id="items-count" class="text-orange-600">0</span>)</span>
+                  </div>
+                  <div class="flex gap-2 items-center">
+                    <span class="text-sm font-semibold text-slate-500 mr-2" id="edit-item-count">0 items</span>
+                    <input type="file" id="input-import-json" accept=".json" class="hidden" />
+                    <button class="btn btn-ghost btn-sm border border-slate-300 bg-white" onclick="document.getElementById('input-import-json').click()">Import JSON</button>
+                    <button id="btn-export-json" class="btn btn-secondary btn-sm bg-white">Export JSON</button>
+                  </div>
+                </div>
+                <div id="item-list" class="flex flex-col gap-3 max-h-80 overflow-y-auto pr-2">
+                  <!-- render dynamically -->
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ASSETS TAB -->
+          <div class="tab-content hidden" id="tab-assets">
+            <div class="max-w-4xl mx-auto w-full flex flex-col gap-6">
+              
+              <div class="card-panel bg-gradient-to-r from-orange-50 to-orange-100/30 border-orange-200">
+                <div class="flex items-center gap-2 mb-4">
+                  <span class="text-xl">📤</span>
+                  <span class="card-panel-title !mb-0 text-orange-900">Upload New Asset</span>
+                </div>
+                <div class="flex flex-col sm:flex-row items-end gap-4">
+                  <div class="flex-1 w-full">
+                    <label class="form-label text-orange-900">Asset Key</label>
+                    <input type="text" id="input-asset-key" class="form-input border-orange-300 focus:ring-orange-500 focus:border-orange-500 shadow-sm" placeholder="e.g., cell-diagram" />
+                  </div>
+                  <div class="flex-1 w-full">
+                    <label class="form-label text-orange-900">File</label>
+                    <input type="file" id="input-asset-file" class="form-input border-orange-300 bg-white shadow-sm" />
+                  </div>
+                  <button id="btn-upload-asset" class="btn btn-primary shadow-orange-500/20 shadow-lg px-6">Save Asset</button>
+                </div>
+              </div>
+
+              <div class="card-panel flex-1">
+                <div class="flex items-center gap-2 mb-4 pb-4 border-b border-slate-100">
+                  <span class="text-xl">🖼️</span>
+                  <span class="card-panel-title !mb-0">Available Assets</span>
+                </div>
+                <div id="assets-empty" class="text-center text-slate-500 py-16 font-medium bg-slate-50 rounded-2xl border border-dashed border-slate-200">No assets found in metadata.</div>
+                <div id="asset-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 hidden">
+                  <!-- injected via TS -->
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- PROGRESS TAB -->
+          <div class="tab-content hidden" id="tab-progress">
+            <div class="max-w-5xl mx-auto w-full flex flex-col gap-6">
+              <div class="card-panel shadow-sm">
+                <div class="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">📈</span>
+                    <span class="card-panel-title !mb-0">Session Progress Data</span>
+                  </div>
+                  <div class="flex gap-2">
+                    <button id="btn-sync-all" class="btn btn-success btn-sm shadow-sm bg-emerald-600">Force Sync All</button>
+                    <button id="btn-refresh-progress" class="btn btn-ghost border border-slate-300 btn-sm bg-white">Refresh</button>
+                    <button id="btn-export-oqsep" class="btn btn-secondary btn-sm bg-white">Export .oqsep</button>
+                  </div>
+                </div>
+
+                <div class="overflow-x-auto border border-slate-200 rounded-xl shadow-sm">
+                  <table class="w-full text-left text-sm" id="progress-table">
+                    <thead class="bg-slate-50 text-slate-600 font-semibold uppercase text-xs tracking-wider">
+                      <tr>
+                        <th class="px-4 py-4 border-b border-slate-200">Item ID</th>
+                        <th class="px-4 py-4 border-b border-slate-200">Prompt</th>
+                        <th class="px-4 py-4 border-b border-slate-200">Bucket</th>
+                        <th class="px-4 py-4 border-b border-slate-200">Attempts</th>
+                        <th class="px-4 py-4 border-b border-slate-200">Streak</th>
+                        <th class="px-4 py-4 border-b border-slate-200">Last Answered</th>
+                        <th class="px-4 py-4 border-b border-slate-200">Next Review</th>
+                      </tr>
+                    </thead>
+                    <tbody id="progress-tbody" class="divide-y divide-slate-100 bg-white">
+                      <tr><td colspan="7" class="px-4 py-10 text-center text-slate-500 font-medium">No progress records loaded.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-    </div>
-
-    <!-- ASSETS -->
-    <div class="tab-content hidden" id="tab-assets">
-
-      <div class="panel">
-        <div class="panel-title">Upload Asset</div>
-        <div class="asset-upload-row">
-          <div class="form-group" style="flex:1;min-width:150px;">
-            <label>Key / path</label>
-            <input type="text" id="input-asset-key" placeholder="assets/image.png" />
-          </div>
-          <div class="form-group" style="flex:2;min-width:180px;">
-            <label>File</label>
-            <input type="file" id="input-asset-file" accept="image/*,audio/*,video/*" style="padding:6px;" />
-          </div>
-          <button class="btn btn-primary" id="btn-upload-asset">Upload</button>
+        <!-- Terminal Console -->
+        <div id="console-panel" class="shrink-0 transition-opacity">
+          <span class="log-inf">▶ Memizy Plugin SDK v0.2.1 — Playground loaded. Waiting for events...</span><br/>
         </div>
-        <p class="text-muted" style="margin-top:10px;font-size:.77rem;">
-          Standalone: stored in IndexedDB, resolved to <code>blob:</code> URLs via <code>uploadAsset()</code>.<br/>
-          In a host frame this would proxy through <code>STORE_ASSET &rarr; ASSET_STORED</code>.
-          Use <code>getRawAsset(key)</code> to retrieve File/Blob back.
-        </p>
-      </div>
-
-      <div class="panel">
-        <div class="panel-title">Stored Assets</div>
-        <div id="asset-grid" class="asset-grid">
-          <div id="assets-empty">No assets uploaded yet.</div>
-        </div>
-      </div>
-
+      </main>
     </div>
-
-    <!-- PROGRESS -->
-    <div class="tab-content hidden" id="tab-progress">
-
-      <div class="panel">
-        <div class="panel-title">Session Progress (getProgress)</div>
-        <div class="flex-gap" style="margin-bottom:14px;">
-          <button class="btn btn-secondary btn-sm" id="btn-refresh-progress">Refresh</button>
-          <button class="btn btn-blue btn-sm"      id="btn-export-oqsep">Export .oqsep</button>
-          <button class="btn btn-ghost btn-sm"     id="btn-sync-all">syncProgress() Bulk</button>
-        </div>
-        <div style="overflow-x:auto;">
-          <table id="progress-table">
-            <thead>
-              <tr>
-                <th>Item ID</th>
-                <th>Question</th>
-                <th>Bucket</th>
-                <th>Attempts</th>
-                <th>Streak</th>
-                <th>Last Answer</th>
-                <th>Next Review</th>
-              </tr>
-            </thead>
-            <tbody id="progress-tbody">
-              <tr><td colspan="7" id="progress-empty" style="text-align:center;color:#64748b;padding:20px;">No progress yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-    </div>
-
-    <div id="console-panel">
-      <span class="log-inf">&#9654; Memizy Plugin SDK v0.2.1 &mdash; playground loaded. Use the &#9881; gear button or click &quot;Load Sample Set&quot;.</span><br/>
-    </div>
-
+    
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
+

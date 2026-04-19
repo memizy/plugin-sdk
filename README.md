@@ -67,7 +67,8 @@ Use `renderHtml()` when you want fast integration in Vanilla JS or simple templa
 - returns a basic HTML string
 - resolves `<asset:key />` using the current session asset registry
 - renders `<blank:key />` as input fields
-- when no sanitizer is provided, output is unsafe for direct DOM insertion
+- without a sanitizer, output is unsafe and MUST be sanitized before display
+- with a sanitizer, output has already been sanitized by your provided policy
 
 ```typescript
 const html = plugin.renderHtml(rawText, {
@@ -84,6 +85,7 @@ Use `parseTextTokens()` when building framework-native rendering in React, Vue, 
 - returns structured tokens (`text`, `blank`, `asset`)
 - asset tokens include resolved `MediaObject` when available
 - enables deterministic component mapping and custom UI logic
+- tokens are data, not sanitized HTML; escape or sanitize token text before HTML display
 
 ```typescript
 const tokens = plugin.parseTextTokens(rawText);
@@ -100,7 +102,7 @@ for (const token of tokens) {
 > [!WARNING]
 > `renderHtml()` does not sanitize output by default.
 > This is intentional (Inversion of Control): the SDK leaves sanitization policy to the plugin.
-> Always provide your own sanitizer (for example, DOMPurify) before assigning HTML to the DOM.
+> Treat output as unsafe unless sanitized. Always provide your own sanitizer (for example, DOMPurify) before assigning HTML to the DOM.
 
 ## Asset Bridge and Session Assets
 

@@ -504,7 +504,9 @@ export class MemizyPlugin {
   // =========================================================================
 
   /**
-    * [TOKENIZED] Parses raw OQSE text into safe tokens.
+   * [TOKENIZED] Parses raw OQSE text into structured tokens.
+   * Returns data tokens, not sanitized HTML.
+   * If token text is later inserted into HTML, it MUST be escaped or sanitized before display.
    * Automatically resolves asset keys to MediaObjects.
    */
   parseTextTokens(rawText: string): import('../types/messages').OQSETextToken[] {
@@ -540,9 +542,11 @@ export class MemizyPlugin {
   }
 
   /**
-    * [HTML OUTPUT] Renders OQSE text directly to HTML.
+   * [HTML OUTPUT] Renders OQSE text directly to HTML.
    * Converts <asset:key /> tags into <img>, <audio>, or <video> elements.
    * Accepts optional custom Markdown parsers or sanitizers.
+   * SECURITY: Without options.sanitizer, output is unsafe and MUST be sanitized before display.
+   * With options.sanitizer, output has been sanitized by the caller-provided policy.
    */
   renderHtml(
     rawText: string,

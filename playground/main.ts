@@ -417,12 +417,12 @@ $('btn-exit').addEventListener('click', () => {
 
 $('btn-resize-test').addEventListener('click', () => {
   plugin.requestResize(640);
-  log('requestResize(640) called.', 'inf');
+  log('Request Resize sent (height=640).', 'inf');
 });
 
 $('btn-report-err').addEventListener('click', () => {
   plugin.reportError('PLAYGROUND_TEST', 'Test error from the playground editor.');
-  log('reportError("PLAYGROUND_TEST", ...) called.', 'warn');
+  log('Report Error sent (PLAYGROUND_TEST).', 'warn');
 });
 
 $('btn-render-low').addEventListener('click', () => {
@@ -536,7 +536,9 @@ $('btn-add-item').addEventListener('click', () => {
   } else {
     const opts = Array.from(document.querySelectorAll<HTMLInputElement>('.mopt')).map(i => i.value.trim()).filter(Boolean);
     if (opts.length < 2) { log('At least 2 MCQ options required!', 'err'); return; }
-    const correct = Number((document.querySelector<HTMLInputElement>('input[name="copt"]:checked'))?.value ?? 0);
+    const correctInput = document.querySelector<HTMLInputElement>('input[name="copt"]:checked')
+      ?? document.querySelector<HTMLInputElement>('input[name="mcq-correct"]:checked');
+    const correct = Number(correctInput?.value ?? 0);
     newItem = {
       id: uid(),
       type: 'mcq-single',
@@ -600,9 +602,11 @@ function renderAssetGrid(): void {
   const keys  = Object.keys(assetCache);
   if (keys.length === 0) {
     empty.style.display = 'block';
+    grid.classList.add('hidden');
     return;
   }
   empty.style.display = 'none';
+  grid.classList.remove('hidden');
   grid.innerHTML = keys.map(key => {
     const url = assetCache[key];
     const isImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(key);

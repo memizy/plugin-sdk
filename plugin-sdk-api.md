@@ -597,8 +597,11 @@ plugin.clearItemTimer(itemId: string): this
 
 The SDK exposes a text processing API with explicit unsafe/sanitized HTML rendering and tokenized parsing.
 
-- `renderHtml(rawText, options)` returns HTML; without `options.sanitizer`, the output is unsafe.
+- `renderHtml(rawText, options)` returns HTML.
+  Without `options.sanitizer`, the output is unsafe and MUST be sanitized before display.
+  With `options.sanitizer`, the returned output has already been sanitized by your provided sanitizer.
 - `parseTextTokens(rawText)` returns structured tokens (`text`, `blank`, `asset`) for token-driven UIs.
+  Tokens are data, not sanitized HTML. If you map token text into HTML, you MUST escape or sanitize before display.
 
 ```typescript
 // Parse raw text with <asset:key /> and <blank:key /> tags into typed tokens.
@@ -614,6 +617,20 @@ plugin.renderHtml(
 ): string
 ```
 
+Explicit safety examples:
+
+```typescript
+// Unsafe output path: MUST sanitize before display.
+const unsafeHtml = plugin.renderHtml(rawText);
+container.innerHTML = DOMPurify.sanitize(unsafeHtml);
+
+// Sanitized output path: already sanitized by your policy callback.
+const sanitizedHtml = plugin.renderHtml(rawText, {
+  sanitizer: (html) => DOMPurify.sanitize(html),
+});
+container.innerHTML = sanitizedHtml;
+```
+
 Example:
 
 ```typescript
@@ -624,8 +641,9 @@ const html = plugin.renderHtml(item.question, {
 container.innerHTML = html;
 ```
 
-> **Security (IoC):** `renderHtml()` intentionally returns basic HTML and does **not** enforce a sanitizer internally.
-> The plugin developer controls sanitization via `options.sanitizer`, so you can plug in your own security policy and tooling.
+> **Security (IoC):** `renderHtml()` intentionally does **not** enforce a built-in sanitizer.
+> Plugin developers own the sanitization policy.
+> Treat output as unsafe unless you explicitly sanitize it before display.
 
 ---
 
