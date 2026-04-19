@@ -14,6 +14,8 @@ import { MemizyPlugin } from '../src/index';
 import type { OQSEItem, InitSessionPayload, OQSEMeta, OQSETextToken } from '../src/index';
 
 type SetMetaState = Partial<OQSEMeta>;
+type StandaloneControlsMode = 'auto' | 'hidden';
+type StandaloneUiPosition = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
 type FlashcardItem = Extract<OQSEItem, { type: 'flashcard' }>;
 type McqSingleItem = Extract<OQSEItem, { type: 'mcq-single' }>;
@@ -85,6 +87,19 @@ const SAMPLE_META: SetMetaState = {
 
 const XSS_PAYLOAD = 'Unsafe HTML demo: <img src="x" onerror="alert(\'XSS fired from unsanitized renderHtml output\')" />';
 
+function parseStandaloneControlsMode(value: string | null): StandaloneControlsMode {
+  return value === 'hidden' ? 'hidden' : 'auto';
+}
+
+function parseStandaloneUiPosition(value: string | null): StandaloneUiPosition {
+  if (value === 'bottom-left' || value === 'top-right' || value === 'top-left') return value;
+  return 'bottom-right';
+}
+
+const startupParams = new URLSearchParams(window.location.search);
+const configuredControlsMode = parseStandaloneControlsMode(startupParams.get('uiMode'));
+const configuredUiPosition = parseStandaloneUiPosition(startupParams.get('uiCorner'));
+
 // -----------------------------------------------------------------------------
 // SDK instance
 // -----------------------------------------------------------------------------
@@ -94,8 +109,8 @@ const plugin = new MemizyPlugin({
   version: '0.2.1',
   standaloneTimeout: 1500,
   debug: true,
-  showStandaloneControls: true,
-  standaloneUiPosition: 'bottom-right',
+  standaloneControlsMode: configuredControlsMode,
+  standaloneUiPosition: configuredUiPosition,
 });
 
 // -----------------------------------------------------------------------------
@@ -106,6 +121,7 @@ let items: OQSEItem[] = [];
 let setMeta: SetMetaState = {};
 let cursor                = 0;
 let answered              = 0;
+const answeredItemIds = new Set<string>();
 /** blobURL cache: key -> blob: URL */
 const assetCache: Record<string, string> = {};
 
@@ -237,9 +253,38 @@ function showTab(name: string): void {
   if (name === 'assets')   renderAssetGrid();
 }
 
+function applyStandaloneUiSettings(): void {
+  const modeSelect = $<HTMLSelectElement>('input-gear-mode');
+  const cornerSelect = $<HTMLSelectElement>('input-gear-corner');
+  const mode = parseStandaloneControlsMode(modeSelect.value);
+  const corner = parseStandaloneUiPosition(cornerSelect.value);
+  const params = new URLSearchParams(window.location.search);
+  params.set('uiMode', mode);
+  params.set('uiCorner', corner);
+  const query = params.toString();
+  window.location.search = query.length > 0 ? `?${query}` : '';
+}
+
+function initStandaloneUiControls(): void {
+  const modeSelect = $<HTMLSelectElement>('input-gear-mode');
+  const cornerSelect = $<HTMLSelectElement>('input-gear-corner');
+  const applyBtn = $<HTMLButtonElement>('btn-apply-gear-settings');
+
+  modeSelect.value = configuredControlsMode;
+  cornerSelect.value = configuredUiPosition;
+  cornerSelect.disabled = configuredControlsMode === 'hidden';
+
+  modeSelect.addEventListener('change', () => {
+    cornerSelect.disabled = modeSelect.value === 'hidden';
+  });
+  applyBtn.addEventListener('click', applyStandaloneUiSettings);
+}
+
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(btn => {
   btn.addEventListener('click', () => showTab(btn.dataset.tab!));
 });
+
+initStandaloneUiControls();
 
 function revealUI(): void {
   $('welcome-screen').classList.add('hidden');
@@ -247,6 +292,27 @@ function revealUI(): void {
   // Un-hide all tab panels so showTab() can display them
   document.querySelectorAll<HTMLElement>('.tab-content').forEach(p => p.classList.remove('hidden'));
   showTab('study');
+}
+
+function getBucketCounts(): number[] {
+  const prog = plugin.getProgress();
+  const counts = [0, 0, 0, 0, 0];
+  items.forEach((item) => {
+    const raw = prog[item.id]?.bucket ?? 0;
+    const bucket = Math.max(0, Math.min(4, raw));
+    counts[bucket] += 1;
+  });
+  return counts;
+}
+
+function updateBucketDistributionUI(): void {
+  const counts = getBucketCounts();
+  const total = items.length || 1;
+  counts.forEach((count, idx) => {
+    const widthPct = (count / total) * 100;
+    $<HTMLElement>(`bucket-seg-${idx}`).style.width = `${widthPct}%`;
+    $<HTMLElement>(`bucket-count-${idx}`).textContent = String(count);
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -263,8 +329,9 @@ function updateBucketBar(item: OQSEItem): void {
     const dot = $(`bdot${i}`);
     dot.classList.toggle('cur', i === bucket);
   }
-  $('blabel').textContent = `Item bucket: B${bucket}`;
+  $('blabel').textContent = `Item bucket: ${bucket}`;
   $('session-stats').textContent = `${answered} answered`;
+  updateBucketDistributionUI();
 }
 
 function renderFlashcard(item: FlashcardItem): void {
@@ -316,6 +383,7 @@ function renderMCQ(item: McqSingleItem): void {
       }
       cardArea.querySelectorAll<HTMLButtonElement>('.option-btn').forEach(b => b.disabled = true);
       plugin.answer(item.id, isCorrect, { confidence: isCorrect ? 4 : 1 });
+      answeredItemIds.add(item.id);
       answered++;
       updateBucketBar(item);
       log(`MCQ answer(${item.id}, ${isCorrect})`, isCorrect ? 'ok' : 'err');
@@ -342,17 +410,29 @@ function renderItem(item: OQSEItem): void {
 }
 
 function moveNext(): void {
-  cursor++;
-  if (cursor >= items.length) {
+  if (items.length === 0) {
+    enableSession(false);
+    return;
+  }
+
+  const progress = plugin.getProgress();
+  if (answeredItemIds.size >= items.length && answered >= items.length) {
     cardArea.innerHTML = `
       <div class="waiting">:tada:</div>
-      <div class="waiting-label">All ${items.length} items reviewed!</div>
+      <div class="waiting-label">Great work: all ${items.length} items were answered at least once.</div>
     `;
     enableSession(false);
     $<HTMLButtonElement>('btn-restart').disabled = false;
-    log(`Session complete. ${answered} items answered.`, 'ok');
+    log('Adaptive session complete. All items were answered at least once.', 'ok');
     return;
   }
+
+  const ranked = items
+    .map((item, index) => ({ index, bucket: progress[item.id]?.bucket ?? 0 }))
+    .sort((a, b) => a.bucket - b.bucket);
+
+  const next = ranked.find(entry => entry.index !== cursor) ?? ranked[0];
+  cursor = next?.index ?? 0;
   renderItem(items[cursor]!);
 }
 
@@ -376,6 +456,7 @@ $('btn-reveal').addEventListener('click', () => {
 $('btn-correct').addEventListener('click', () => {
   const item = items[cursor]; if (!item) return;
   plugin.answer(item.id, true, { confidence: 4 });
+  answeredItemIds.add(item.id);
   answered++;
   updateBucketBar(item);
   log(`answer(${item.id}, correct)`, 'ok');
@@ -385,6 +466,7 @@ $('btn-correct').addEventListener('click', () => {
 $('btn-wrong').addEventListener('click', () => {
   const item = items[cursor]; if (!item) return;
   plugin.answer(item.id, false, { confidence: 1 });
+  answeredItemIds.add(item.id);
   answered++;
   updateBucketBar(item);
   log(`answer(${item.id}, wrong)`, 'err');
@@ -403,10 +485,11 @@ $('btn-next').addEventListener('click', () => moveNext());
 $('btn-restart').addEventListener('click', () => {
   cursor  = 0;
   answered = 0;
+  answeredItemIds.clear();
   $<HTMLButtonElement>('btn-restart').disabled = true;
   enableSession(true);
   if (items[0]) renderItem(items[0]);
-  log('Session restarted.', 'inf');
+  log('Adaptive session restarted.', 'inf');
 });
 
 $('btn-exit').addEventListener('click', () => {
@@ -725,6 +808,7 @@ plugin
     setMeta  = { ...setMeta };
     cursor   = 0;
     answered = 0;
+    answeredItemIds.clear();
 
     // Resolve set-level assets into cache
     Object.entries(payload.assets ?? {}).forEach(([k, mo]) => {
@@ -746,9 +830,11 @@ plugin
     setMeta.title = title;
 
     log(`onInit: ${items.length} items  |  isStandalone=${plugin.isStandalone()}  |  locale=${payload.settings?.locale ?? 'n/a'}`, 'ok');
+    log('Adaptive mode enabled (completion after each item gets at least one answer).', 'inf');
 
     if (items.length === 0) {
       revealUI();
+      updateBucketDistributionUI();
       cardArea.innerHTML = `<div class="waiting">&#128221;</div><div class="waiting-label">Set is empty - use the Edit tab to add items.</div>`;
       enableSession(false);
       $<HTMLButtonElement>('btn-restart').disabled = true;
@@ -757,6 +843,7 @@ plugin
     }
 
     revealUI();
+    updateBucketDistributionUI();
     populateMetaFields();
     enableSession(true);
     renderItem(items[0]!);

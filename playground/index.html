@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Memizy Plugin SDK v0.2.1 &mdash; Playground Editor</title>
+    <title>Memizy Plugin SDK Use Example</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap");
@@ -58,6 +58,17 @@
       .bb3 { background: #6EE7B7; color: #166534; }
       .bb4 { background: #34D399; color: #166534; }
 
+      .bucket-progress-track { height: 12px; background: #D1D5DB; border-radius: 999px; overflow: hidden; display: flex; flex-direction: row-reverse; }
+      .bucket-seg { height: 100%; transition: width 0.25s ease; }
+      .bucket-seg.s0 { background: #C0C5CF; }
+      .bucket-seg.s1 { background: #EF4444; }
+      .bucket-seg.s2 { background: #F97316; }
+      .bucket-seg.s3 { background: #3B82F6; }
+      .bucket-seg.s4 { background: #22C55E; }
+      .bucket-legend { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 10px; margin-top: 8px; padding-bottom: 2px; }
+      .bucket-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 600; color: #475569; flex: 0 0 auto; white-space: nowrap; }
+      .bucket-chip-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
+
       /* Dynamic Elements */
       .item-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: white; border: 1px solid #E2E8F0; border-radius: 10px; transition: all 0.2s; }
       .item-row:hover { border-color: #CBD5E1; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
@@ -111,7 +122,7 @@
         <div class="p-6 border-b border-slate-100">
           <div class="flex items-center gap-3 mb-2">
             <span class="text-3xl">🚀</span>
-            <h1 class="text-2xl font-black text-slate-800 tracking-tight leading-none">Memizy<br/><span class="text-orange-500">Studio</span></h1>
+            <h1 class="text-2xl font-black text-slate-800 tracking-tight leading-tight">Memizy Plugin SDK <span class="text-orange-500">Use Example</span></h1>
           </div>
           <div class="flex flex-wrap gap-2 mt-4">
             <span class="bg-orange-100 text-orange-700 text-xs font-bold px-2 py-1 rounded-md">v0.2.1</span>
@@ -130,9 +141,29 @@
           </div>
         </div>
 
+        <div class="px-4 py-3 border-t border-slate-100">
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-2">Standalone UI</div>
+          <div class="space-y-2">
+            <label for="input-gear-mode" class="form-label !mb-0">Gear Mode</label>
+            <select id="input-gear-mode" class="form-input text-sm">
+              <option value="auto">Auto (show gear)</option>
+              <option value="hidden">Hidden (no gear)</option>
+            </select>
+            <label for="input-gear-corner" class="form-label !mb-0 mt-2">Gear Corner</label>
+            <select id="input-gear-corner" class="form-input text-sm">
+              <option value="bottom-right">Bottom Right</option>
+              <option value="bottom-left">Bottom Left</option>
+              <option value="top-right">Top Right</option>
+              <option value="top-left">Top Left</option>
+            </select>
+            <button id="btn-apply-gear-settings" class="btn btn-secondary btn-sm w-full border border-slate-300 bg-white">Apply &amp; Reload</button>
+          </div>
+        </div>
+
         <div class="mt-auto p-4 border-t border-slate-100 bg-slate-50">
           <div class="text-xs font-semibold text-slate-500 mb-1">Current Set:</div>
           <div id="header-set-title" class="text-sm font-bold text-slate-800 truncate">No set loaded</div>
+          <a href="https://memizy.com" target="_blank" rel="noopener noreferrer" class="mt-3 block text-xs text-slate-500 hover:text-orange-600 transition-colors">Powered by Memizy</a>
         </div>
       </aside>
 
@@ -176,10 +207,30 @@
                       <span id="bdot3" class="bdot b3"></span>
                       <span id="bdot4" class="bdot b4"></span>
                     </div>
-                    <span id="blabel" class="text-sm font-semibold text-slate-600">Item bucket: B0</span>
+                    <span id="blabel" class="text-sm font-semibold text-slate-600">Item bucket: 0</span>
                   </div>
                 </div>
-                <div class="text-sm font-bold text-slate-600 bg-slate-100 border border-slate-200 px-4 py-2 rounded-xl" id="session-stats">0 answered</div>
+                <div class="w-full sm:w-[560px]">
+                  <div class="flex items-center justify-between text-xs font-semibold text-slate-500 mb-1">
+                    <span>New</span>
+                    <span>Mastered</span>
+                  </div>
+                  <div class="bucket-progress-track" aria-label="Bucket distribution progress">
+                    <div id="bucket-seg-4" class="bucket-seg s4" style="width:0%"></div>
+                    <div id="bucket-seg-3" class="bucket-seg s3" style="width:0%"></div>
+                    <div id="bucket-seg-2" class="bucket-seg s2" style="width:0%"></div>
+                    <div id="bucket-seg-1" class="bucket-seg s1" style="width:0%"></div>
+                    <div id="bucket-seg-0" class="bucket-seg s0" style="width:100%"></div>
+                  </div>
+                  <div class="bucket-legend">
+                    <span class="bucket-chip"><span class="bucket-chip-dot s0" style="background:#C0C5CF"></span>New <span id="bucket-count-0">0</span></span>
+                    <span class="bucket-chip"><span class="bucket-chip-dot s1" style="background:#EF4444"></span>Learning <span id="bucket-count-1">0</span></span>
+                    <span class="bucket-chip"><span class="bucket-chip-dot s2" style="background:#F97316"></span>Familiar <span id="bucket-count-2">0</span></span>
+                    <span class="bucket-chip"><span class="bucket-chip-dot s3" style="background:#3B82F6"></span>Consolidated <span id="bucket-count-3">0</span></span>
+                    <span class="bucket-chip"><span class="bucket-chip-dot s4" style="background:#22C55E"></span>Mastered <span id="bucket-count-4">0</span></span>
+                  </div>
+                  <div id="session-stats" class="text-xs font-semibold text-slate-500 mt-2">0 answered</div>
+                </div>
               </div>
 
               <!-- Primary Controls -->
