@@ -4,6 +4,7 @@
 
 - [Overview](#overview)
 - [Architecture](#architecture)
+- [Plugin Distribution](#plugin-distribution)
 - [Lifecycle](#lifecycle)
 - [Message Protocol](#message-protocol)
   - [Host → Plugin messages](#host--plugin-messages)
@@ -40,6 +41,25 @@ The Memizy Plugin API allows developers to create custom interactive learning ex
 | **Plugin (SDK)** | Owns session-level state. Renders items, captures user input, runs the Leitner spaced-repetition reducer internally, and pushes progress deltas to the Host after every interaction. Can read/write assets through the host bridge (`STORE_ASSET`, `REQUEST_RAW_ASSET`). |
 
 **Security model:** Plugins run in a cross-origin `<iframe>`. The Host verifies the `event.origin` or compares the source `Window` reference on every incoming message. Plugins MUST send all messages to `window.parent` only.
+
+---
+
+## Plugin Distribution
+
+Memizy supports two plugin distribution channels. Both require a valid OQSE Application Manifest.
+
+1. **Registry / self-hosted entrypoint URL**
+  - The plugin is hosted by the plugin author (or CDN) and referenced by URL.
+  - `id` in SDK configuration MUST match manifest `id`.
+  - Host loads plugin in an iframe from the configured URL.
+
+2. **Direct app upload package**
+  - The plugin is uploaded to the Memizy app as a single packaged artifact.
+  - The package MUST include an `index.html` entrypoint with embedded manifest metadata.
+  - Host extracts and serves the package in a sandboxed runtime.
+
+Canonical manifest rules and examples:
+[OQSE Manifest Specification](https://github.com/memizy/oqse-specification/blob/main/oqse-manifest.md).
 
 ---
 
@@ -289,7 +309,7 @@ Request the raw `File` for an asset stored in the Host's storage. The Host respo
 
 #### `EXIT_REQUEST`
 
-Signal to the Host that the session is over. Replaces `SESSION_COMPLETED` from earlier protocol versions.
+Signal to the Host that the session is over.
 
 ```typescript
 {
@@ -364,8 +384,9 @@ Sent for non-fatal errors that the Host should log. Plugin MUST continue running
 5. **Graceful fallback.** If a plugin receives an item type it does not support, call `plugin.skip(itemId)` and continue with the next item. It MUST NOT crash.
 6. **Standalone / Dev mode.** The SDK detects when it is running outside a Memizy host frame (`window.self === window.top`) and handles session startup automatically. The developer's `onInit` callback is called identically in all cases  no extra code is required in the plugin.
 7. **No external tracking.** Plugins MUST NOT include third-party analytics or tracking scripts. All telemetry flows through the Host via the message protocol.
-8. **Manifest required.** Every plugin MUST embed a valid OQSE Application Manifest inside its `index.html`.
-   To keep this SDK documentation evergreen, use the canonical manifest reference in the OQSE specification repository:
+8. **Manifest required.** Every distributed plugin MUST provide a valid OQSE Application Manifest.
+  For URL entrypoints, host the manifest with the plugin entrypoint. For direct app uploads, embed the manifest in `index.html`.
+  Canonical manifest reference:
    [OQSE Manifest Specification](https://github.com/memizy/oqse-specification/blob/main/oqse-manifest.md).
 
 For broader schema and format requirements, refer to the
@@ -378,10 +399,7 @@ and [OQSE Progress Specification](https://github.com/memizy/oqse-specification/b
 
 The `@memizy/plugin-sdk` is a zero-dependency TypeScript library that abstracts the full message protocol. It is the recommended (and for published plugins, required) way to build Memizy plugins.
 
-**Version:** `0.2.1`  
 **Source:** [src/index.ts](src/index.ts)
-
-Starting with `0.2.1`, the SDK sources OQSE and OQSEP model types from the external package `@memizy/oqse`.
 
 ### Installation
 
@@ -408,7 +426,9 @@ const plugin = new MemizyPlugin({
   version: '1.0.0',                       // SemVer of this plugin
   standaloneTimeout: 2000,                // ms to wait before mock/standalone fallback (default: 2000)
   debug: true,                            // Log SDK lifecycle events to console (default: false)
-  showStandaloneControls: true,           // Floating ⚙ gear icon in standalone mode (default: true)
+  standaloneControlsMode: 'auto',         // 'auto' (gear visible) | 'hidden' (no gear, manual open)
+  standaloneUiPosition: 'bottom-right',   // Gear corner in auto mode
+  showStandaloneControls: true,           // Legacy alias: true => 'auto', false => 'hidden'
 });
 ```
 
@@ -427,18 +447,27 @@ The SDK automatically detects when the plugin is not running inside a Memizy hos
 | 1 | Host iframe — `INIT_SESSION` postMessage arrives | Normal path; `onInit` fired by host message |
 | 2 | `useMockData()` was called | `onInit` fired after `standaloneTimeout` ms (default: 2000) if no host message |
 | 3 | URL contains `?set=<url>` | OQSE JSON fetched automatically; `onInit` fired |
-| 4 | None of the above | Floating ⚙ gear icon + settings dialog shown automatically |
+| 4 | None of the above | Standalone controls are created; dialog auto-opens only in `standaloneControlsMode: 'auto'` |
 
-**Floating gear icon**
+**Standalone controls modes**
 
-In standalone mode the SDK injects a semi-transparent ⚙ gear button at the bottom-right corner of the page (inside a closed Shadow DOM for CSS isolation). Clicking it opens a settings dialog with two tabs:
+The SDK provides two standalone control modes:
+
+- **`auto` (default):** injects a semi-transparent ⚙ gear button in the configured corner. The dialog auto-opens when no set data is available.
+- **`hidden`:** does not render the gear button. The plugin can open the same dialog programmatically.
+
+The settings dialog includes two tabs:
 
 - **Study Set** — load via URL input, paste OQSE JSON text, or upload/drag-and-drop a `.oqse.json` file
 - **Progress** — load OQSEP progress via pasted JSON text or `.oqsep` file upload
 
-When no `?set=` URL or mock data is present, the dialog opens automatically. After a set is loaded, the dialog hides but the gear icon remains accessible.
+When no `?set=` URL or mock data is present, the dialog opens automatically only in `auto` mode. After a set is loaded, the dialog hides.
 
-> Set `showStandaloneControls: false` to suppress the built-in UI entirely.
+Use `openStandaloneControls()` to open the dialog in hidden mode:
+
+```typescript
+plugin.openStandaloneControls();
+```
 
 **`?set=` quick-launch URL**
 

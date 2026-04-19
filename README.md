@@ -15,8 +15,6 @@ Memizy plugins run inside a sandboxed iframe and communicate with the host via a
 - host-bridged asset upload/download methods
 - standalone development mode with built-in loading UI
 
-Starting in `v0.2.1`, SDK domain model types are sourced from `@memizy/oqse`.
-
 ## Installation
 
 ```bash
@@ -41,6 +39,7 @@ const plugin = new MemizyPlugin({
   id: 'https://my-domain.com/my-plugin',
   version: '1.0.0',
   debug: true,
+  standaloneControlsMode: 'auto', // 'auto' | 'hidden'
 });
 
 let items: OQSEItem[] = [];
@@ -54,6 +53,23 @@ plugin.onInit((payload: InitSessionPayload) => {
 function render(item: OQSEItem): void {
   plugin.startItemTimer(item.id);
 }
+```
+
+## Standalone Controls Mode
+
+The standalone helper UI supports two modes:
+
+- `auto` (default): floating gear is visible and the dialog auto-opens when no set is loaded
+- `hidden`: no gear icon; open dialog programmatically when needed
+
+```typescript
+const plugin = new MemizyPlugin({
+  id: 'https://my-domain.com/my-plugin',
+  version: '1.0.0',
+  standaloneControlsMode: 'hidden',
+});
+
+plugin.openStandaloneControls();
 ```
 
 ## Text Processing API
@@ -129,6 +145,7 @@ At session startup, the SDK stores `INIT_SESSION.payload.assets` in an internal 
 | `getRawAsset(key)` | Fetches stored raw asset as `File | Blob`. |
 | `parseTextTokens(rawText)` | Returns token stream for custom renderers. |
 | `renderHtml(rawText, options?)` | Returns baseline HTML with resolved tokens. |
+| `openStandaloneControls()` | Opens standalone loader dialog when controls mode is `hidden`. |
 | `exit(options?)` | Sends `EXIT_REQUEST` with score/time payload. |
 
 ## Documentation

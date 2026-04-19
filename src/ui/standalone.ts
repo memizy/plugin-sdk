@@ -35,6 +35,7 @@ export class StandaloneUI {
     autoOpen: boolean,
     callbacks: StandaloneUICallbacks,
     position: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' = 'bottom-right',
+    showGearButton = true,
   ) {
     this.host = document.createElement('div');
     this.host.setAttribute('data-memizy-standalone', '');
@@ -45,18 +46,21 @@ export class StandaloneUI {
     style.textContent = STANDALONE_UI_CSS;
     shadow.appendChild(style);
 
-    // Gear button
-    const gearBtn = document.createElement('button');
-    gearBtn.className = 'gear-btn';
-    gearBtn.textContent = '\u2699';
-    gearBtn.title = 'Standalone settings';
-    // Apply corner position
-    const [vSide, hSide] = position.split('-') as ['bottom' | 'top', 'right' | 'left'];
-    gearBtn.style[vSide]                                   = '16px';
-    gearBtn.style[vSide === 'bottom' ? 'top'   : 'bottom'] = 'auto';
-    gearBtn.style[hSide]                                   = '16px';
-    gearBtn.style[hSide === 'right'  ? 'left'  : 'right']  = 'auto';
-    shadow.appendChild(gearBtn);
+    // Gear button (optional)
+    let gearBtn: HTMLButtonElement | null = null;
+    if (showGearButton) {
+      gearBtn = document.createElement('button');
+      gearBtn.className = 'gear-btn';
+      gearBtn.textContent = '\u2699';
+      gearBtn.title = 'Standalone settings';
+      // Apply corner position
+      const [vSide, hSide] = position.split('-') as ['bottom' | 'top', 'right' | 'left'];
+      gearBtn.style[vSide]                                   = '16px';
+      gearBtn.style[vSide === 'bottom' ? 'top'   : 'bottom'] = 'auto';
+      gearBtn.style[hSide]                                   = '16px';
+      gearBtn.style[hSide === 'right'  ? 'left'  : 'right']  = 'auto';
+      shadow.appendChild(gearBtn);
+    }
 
     // Dialog overlay
     const overlay = document.createElement('div');
@@ -81,6 +85,11 @@ export class StandaloneUI {
   /** Hide the dialog but keep the gear button visible. */
   hide(): void {
     this.overlay.classList.add('hidden');
+  }
+
+  /** Show the dialog (used by hidden-controls mode or custom plugin triggers). */
+  show(): void {
+    this.overlay.classList.remove('hidden');
   }
 
   /** Remove the entire UI from the page. */
@@ -162,7 +171,7 @@ export class StandaloneUI {
   private wire(
     shadow: ShadowRoot,
     overlay: HTMLElement,
-    gearBtn: HTMLButtonElement,
+    gearBtn: HTMLButtonElement | null,
     cb: StandaloneUICallbacks,
   ): void {
     const $ = (id: string) => shadow.getElementById(id);
@@ -201,7 +210,7 @@ export class StandaloneUI {
     });
 
     // ── Open / close ──
-    gearBtn.addEventListener('click', () => overlay.classList.toggle('hidden'));
+    gearBtn?.addEventListener('click', () => overlay.classList.toggle('hidden'));
     $('close-btn')!.addEventListener('click', () => overlay.classList.add('hidden'));
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) overlay.classList.add('hidden');

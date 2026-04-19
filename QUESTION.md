@@ -12,7 +12,6 @@ Sent when the Host terminates the session externally (user pressed "Abort", brow
 ```
 Potřebujem to?
 
-Odkazuje se že session je v OPFS to ale není pravda, je to jak v api tak i v README
 Vylepšit ten playground, nefunguje tam to opakování otázek, projde se to jen jednou nějak, pak je potřeba to nahrát znovu
 
 Doplnit tam jména aplikace a některý ty odkazy
@@ -42,7 +41,3 @@ my-plugin/
 
 Vyzkoušet jak to umí načítat i .oqse soubory a jak to umí dělat export a import atd.
 
-POTOM
-Uzpůsobit tomu i memizy samotné
-Udělat proklikatelný i ty další readme tam u nich věci
-Později až budu dělat i multiplayer přes pluginy tak můžu okopírovat hry z blooketu a to ve velkým a všechno to navibecodit, když to zvládlo let me in, zvládne to i tohle

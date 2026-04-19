@@ -17,8 +17,10 @@ import type {
   IncomingMessage,
   InitSessionPayload,
   MemizyPluginOptions,
+  SessionAbortedReason,
   SessionFuelState,
   SessionSettings,
+  StandaloneControlsMode,
 } from '../types/messages';
 
 type Bucket = ProgressRecord['bucket'];
@@ -40,7 +42,7 @@ export type { AnswerOptions, ExitOptions, MemizyPluginOptions };
 /**
  * Official TypeScript SDK for building Memizy plugins.
  *
- * - Handles `INIT_SESSION`, `CONFIG_UPDATE`, `ASSET_STORED`, `RAW_ASSET_PROVIDED`.
+ * - Handles `INIT_SESSION`, `SESSION_ABORTED`, `CONFIG_UPDATE`, `ASSET_STORED`, `RAW_ASSET_PROVIDED`.
  * - Runs the Leitner spaced-repetition reducer on every `answer()` call and
  *   sends `SYNC_PROGRESS` to keep the host's storage in sync.
  * - Exposes CRUD helpers (`saveItems`, `deleteItems`, `updateMeta`).
@@ -53,7 +55,7 @@ export class MemizyPlugin {
   private readonly version: string;
   private readonly standaloneTimeout: number;
   private readonly debugMode: boolean;
-  private readonly showStandaloneControls: boolean;
+  private readonly standaloneControlsMode: StandaloneControlsMode;
   private readonly standaloneUiPosition: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
   // Registered callbacks
@@ -85,6 +87,9 @@ export class MemizyPlugin {
   // Whether INIT_SESSION (or standalone equivalent) has been received
   private initialized = false;
 
+  // Host signaled that session is externally terminated.
+  private sessionAborted = false;
+
   // Shadow DOM standalone UI instance
   private standaloneUI: StandaloneUI | null = null;
 
@@ -105,7 +110,8 @@ export class MemizyPlugin {
     this.version               = options.version;
     this.standaloneTimeout      = options.standaloneTimeout ?? 2000;
     this.debugMode               = options.debug ?? false;
-    this.showStandaloneControls  = options.showStandaloneControls ?? true;
+    this.standaloneControlsMode  = options.standaloneControlsMode
+      ?? (options.showStandaloneControls === false ? 'hidden' : 'auto');
     this.standaloneUiPosition    = options.standaloneUiPosition ?? 'bottom-right';
 
     this.messageListener = this.handleMessage.bind(this);
@@ -120,6 +126,10 @@ export class MemizyPlugin {
   // ── postMessage helpers ──────────────────────────────────────────────────
 
   private send<T extends string, P>(type: T, payload?: P): void {
+    if (this.sessionAborted) {
+      this.log(`Ignoring outgoing ${type} because SESSION_ABORTED was received.`);
+      return;
+    }
     const message = payload !== undefined ? { type, payload } : { type };
     window.parent.postMessage(message, '*');
   }
@@ -138,6 +148,7 @@ export class MemizyPlugin {
     switch (msg.type) {
       case 'INIT_SESSION': {
         const payload = msg.payload as InitSessionPayload;
+        this.sessionAborted = false;
         this.sessionAssets = payload.assets || {};
         this.initialized = true;
         this.standaloneUI?.destroy();
@@ -152,6 +163,12 @@ export class MemizyPlugin {
         this.sessionStartTime = Date.now();
         this.log('INIT_SESSION received from host, items:', payload.items.length);
         this.initHandler?.(payload);
+        break;
+      }
+
+      case 'SESSION_ABORTED': {
+        const payload = (msg.payload ?? {}) as { reason?: SessionAbortedReason };
+        this.abortCurrentSession(payload.reason ?? 'host_error');
         break;
       }
 
@@ -197,6 +214,27 @@ export class MemizyPlugin {
     }
   }
 
+  private abortCurrentSession(reason: SessionAbortedReason): void {
+    if (this.sessionAborted) return;
+    this.sessionAborted = true;
+    this.timerManager.clearAll();
+    if (this.standaloneTimer !== null) {
+      clearTimeout(this.standaloneTimer);
+      this.standaloneTimer = null;
+    }
+    for (const [id, { reject }] of this.pendingAssetRequests) {
+      reject(new Error(`[memizy-plugin-sdk] Session aborted (${reason}) while waiting for asset request ${id}`));
+    }
+    this.pendingAssetRequests.clear();
+    this.log(`SESSION_ABORTED received: reason=${reason}`);
+  }
+
+  private canRun(action: string): boolean {
+    if (!this.sessionAborted) return true;
+    this.log(`Ignored ${action} because SESSION_ABORTED was received.`);
+    return false;
+  }
+
   // ── Standalone mode ──────────────────────────────────────────────────────
 
   private async maybeInitStandaloneMode(): Promise<void> {
@@ -224,10 +262,14 @@ export class MemizyPlugin {
     const params = new URLSearchParams(window.location.search);
     const setUrl = params.get('set');
 
-    if (this.showStandaloneControls) {
-      const autoOpen = !setUrl && !this.mockItems;
-      this.standaloneUI = new StandaloneUI(autoOpen, this.buildUICallbacks(), this.standaloneUiPosition);
-    }
+    const autoOpen = this.standaloneControlsMode === 'auto' && !setUrl && !this.mockItems;
+    const showGearButton = this.standaloneControlsMode === 'auto';
+    this.standaloneUI = new StandaloneUI(
+      autoOpen,
+      this.buildUICallbacks(),
+      this.standaloneUiPosition,
+      showGearButton,
+    );
 
     if (setUrl) {
       this.log('Standalone: ?set= detected, fetching', setUrl);
@@ -384,6 +426,7 @@ export class MemizyPlugin {
   }
 
   private activateSession(payload: InitSessionPayload): void {
+    this.sessionAborted = false;
     this.initialized = true;
     this.sessionAssets = payload.assets || {};
     if (this.standaloneTimer !== null) {
@@ -648,6 +691,7 @@ export class MemizyPlugin {
    * 3. Sends `SYNC_PROGRESS` with the updated record.
    */
   answer(itemId: string, isCorrect: boolean, options: AnswerOptions = {}): this {
+    if (!this.canRun('answer')) return this;
     let timeSpent = options.timeSpent;
     if (timeSpent === undefined) {
       timeSpent = this.timerManager.has(itemId) ? this.timerManager.stop(itemId) : 0;
@@ -672,6 +716,7 @@ export class MemizyPlugin {
    * `isSkipped: true`. Sends `SYNC_PROGRESS`.
    */
   skip(itemId: string): this {
+    if (!this.canRun('skip')) return this;
     const timeSpent = this.timerManager.has(itemId) ? this.timerManager.stop(itemId) : 0;
 
     const existing: ProgressRecord = this.progressRecords[itemId] ?? {
@@ -699,6 +744,7 @@ export class MemizyPlugin {
    * `SYNC_PROGRESS` to the host.
    */
   syncProgress(records: Record<string, ProgressRecord>): this {
+    if (!this.canRun('syncProgress')) return this;
     Object.assign(this.progressRecords, records);
     this.send('SYNC_PROGRESS', records);
     if (this.isStandalone()) void this.storage.saveProgress(records);
@@ -715,6 +761,7 @@ export class MemizyPlugin {
 
   /** Persist new or updated items to the host's persistent storage. The host merges by `id`. */
   saveItems(items: OQSEItem[]): this {
+    if (!this.canRun('saveItems')) return this;
     if (this.isStandalone()) void this.storage.saveItems(items);
     this.send('MUTATE_ITEMS', { items });
     this.log(`saveItems: ${items.length} item(s)`);
@@ -723,6 +770,7 @@ export class MemizyPlugin {
 
   /** Delete items from the host's persistent storage by their UUIDs. */
   deleteItems(itemIds: string[]): this {
+    if (!this.canRun('deleteItems')) return this;
     if (this.isStandalone()) void this.storage.deleteItems(itemIds);
     this.send('DELETE_ITEMS', { itemIds });
     this.log(`deleteItems: ${itemIds.length} id(s)`);
@@ -731,6 +779,7 @@ export class MemizyPlugin {
 
   /** Update the study set's metadata (title, description, tags, etc.) in the host's storage. */
   updateMeta(meta: Partial<OQSEMeta>): this {
+    if (!this.canRun('updateMeta')) return this;
     if (this.isStandalone()) void this.storage.updateMeta(meta);
     this.send('MUTATE_META', { meta });
     this.log('updateMeta:', Object.keys(meta).join(', '));
@@ -744,6 +793,9 @@ export class MemizyPlugin {
    * Returns a `Promise<MediaObject>` with the stored asset descriptor.
    */
   uploadAsset(file: File | Blob, suggestedKey?: string): Promise<MediaObject> {
+    if (!this.canRun('uploadAsset')) {
+      return Promise.reject(new Error('[memizy-plugin-sdk] uploadAsset() ignored after SESSION_ABORTED'));
+    }
     const requestId = MemizyPlugin.newRequestId();
     const key = suggestedKey ?? (file instanceof File ? file.name : `asset-${requestId}`);
 
@@ -780,6 +832,9 @@ export class MemizyPlugin {
    * Returns a `Promise<File | Blob>`.
    */
   getRawAsset(key: string): Promise<File | Blob> {
+    if (!this.canRun('getRawAsset')) {
+      return Promise.reject(new Error('[memizy-plugin-sdk] getRawAsset() ignored after SESSION_ABORTED'));
+    }
     // Standalone shortcut: read directly from IndexedDB
     if (this.isStandalone()) {
       this.log(`getRawAsset standalone: key=${key}`);
@@ -804,6 +859,7 @@ export class MemizyPlugin {
    * @param options  Optional `score` (0–100).
    */
   exit(options: ExitOptions = {}): this {
+    if (!this.canRun('exit')) return this;
     this.send('EXIT_REQUEST', {
       score: options.score ?? null,
       totalTimeSpent: Date.now() - this.sessionStartTime,
@@ -816,6 +872,7 @@ export class MemizyPlugin {
    * The host MAY ignore this.
    */
   requestResize(height: number | 'auto', width: number | 'auto' | null = null): this {
+    if (!this.canRun('requestResize')) return this;
     this.send('RESIZE_REQUEST', { height, width });
     return this;
   }
@@ -829,6 +886,7 @@ export class MemizyPlugin {
     message: string,
     options: { itemId?: string; context?: Record<string, unknown> } = {},
   ): this {
+    if (!this.canRun('reportError')) return this;
     this.send('PLUGIN_ERROR', {
       code,
       message,
@@ -845,17 +903,20 @@ export class MemizyPlugin {
    * The elapsed time is automatically included in `answer()` and `skip()`.
    */
   startItemTimer(itemId: string): this {
+    if (!this.canRun('startItemTimer')) return this;
     this.timerManager.start(itemId);
     return this;
   }
 
   /** Stop the timer and return elapsed milliseconds. */
   stopItemTimer(itemId: string): number {
+    if (!this.canRun('stopItemTimer')) return 0;
     return this.timerManager.stop(itemId);
   }
 
   /** Stop the timer silently (e.g., on abort). */
   clearItemTimer(itemId: string): this {
+    if (!this.canRun('clearItemTimer')) return this;
     this.timerManager.clear(itemId);
     return this;
   }
@@ -900,6 +961,7 @@ export class MemizyPlugin {
       console.warn('[memizy-plugin-sdk] triggerMock() called but no mock data set — call useMockData() first.');
       return this;
     }
+    this.sessionAborted = false;
     this.initialized = true;
     const payload = this.buildMockPayload();
     if (payload.progress) this.progressRecords = { ...payload.progress };
@@ -916,6 +978,24 @@ export class MemizyPlugin {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Manually open the standalone controls dialog.
+   * Useful with `standaloneControlsMode: 'hidden'` when the plugin controls when UI should appear.
+   */
+  openStandaloneControls(): this {
+    if (!this.isStandalone()) return this;
+    if (!this.standaloneUI) {
+      this.standaloneUI = new StandaloneUI(
+        false,
+        this.buildUICallbacks(),
+        this.standaloneUiPosition,
+        false,
+      );
+    }
+    this.standaloneUI.show();
+    return this;
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────

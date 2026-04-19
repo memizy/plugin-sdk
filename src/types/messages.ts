@@ -43,6 +43,9 @@ export type OQSETextToken =
   | { type: 'blank'; key: string }
   | { type: 'asset'; key: string; media?: MediaObject };
 
+export type SessionAbortedReason = 'user_exit' | 'timeout' | 'host_error';
+export type StandaloneControlsMode = 'auto' | 'hidden';
+
 // ---------------------------------------------------------------------------
 // Consumer-facing option types
 // ---------------------------------------------------------------------------
@@ -83,8 +86,18 @@ export interface MemizyPluginOptions {
    */
   debug?: boolean;
   /**
+    * Controls how standalone UI controls are exposed.
+    * - `auto`: show floating gear and auto-open when needed.
+    * - `hidden`: do not show floating gear; plugin decides when to open via `openStandaloneControls()`.
+    * Defaults to `auto`.
+    */
+    standaloneControlsMode?: StandaloneControlsMode;
+    /**
    * Show the floating ⚙ gear icon in standalone mode.
-   * Defaults to `true`. Set to `false` to suppress the built-in UI entirely.
+    * Backward-compatible alias for `standaloneControlsMode`.
+    * - `true` => `auto`
+    * - `false` => `hidden`
+    * Defaults to `true`.
    */
   showStandaloneControls?: boolean;
   /**
@@ -105,6 +118,7 @@ export interface HostMessage<T extends string, P = undefined> {
 
 export type IncomingMessage =
   | HostMessage<'INIT_SESSION', InitSessionPayload>
+  | HostMessage<'SESSION_ABORTED', { reason: SessionAbortedReason }>
   | HostMessage<'CONFIG_UPDATE', Partial<Pick<SessionSettings, 'theme' | 'locale'>>>
   | HostMessage<'ASSET_STORED', { requestId: string; mediaObject?: MediaObject; error?: string }>
   | HostMessage<'RAW_ASSET_PROVIDED', { requestId: string; file?: File; error?: string }>;
