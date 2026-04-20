@@ -19,7 +19,7 @@ export type {
   LastAnswerObject as ProgressLastAnswer,
   StatsObject as ProgressStats,
   ProgressMeta as OQSEPMeta,
-  OQSEPFile as OQSEPDocument,
+  OQSEProgress as OQSEPDocument,
 } from '@memizy/oqse';
 
 // Protocol option types

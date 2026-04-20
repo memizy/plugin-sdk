@@ -11,6 +11,7 @@ import type {
   ProgressRecord,
   StatsObject as ProgressStats,
 } from '@memizy/oqse';
+import { prepareRichTextForDisplay } from '@memizy/oqse';
 import type {
   AnswerOptions,
   ExitOptions,
@@ -553,11 +554,9 @@ export class MemizyPlugin {
   }
 
   /**
-   * [HTML OUTPUT] Renders OQSE text directly to HTML.
-   * Converts <asset:key /> tags into <img>, <audio>, or <video> elements.
-   * Accepts optional custom Markdown parsers or sanitizers.
+   * [HTML OUTPUT] Renders OQSE text directly to HTML using the core pipeline.
+   * Ensures safe ordering: Tokenize -> Markdown -> Sanitize -> Detokenize.
    * SECURITY: Without options.sanitizer, output is unsafe and MUST be sanitized before display.
-   * With options.sanitizer, output has been sanitized by the caller-provided policy.
    */
   renderHtml(
     rawText: string,
@@ -566,32 +565,31 @@ export class MemizyPlugin {
       sanitizer?: (html: string) => string;
     }
   ): string {
-    const tokens = this.parseTextTokens(rawText);
+    const mdParser = (text: string) => {
+      const parsed = options?.markdownParser ? options.markdownParser(text) : text;
+      return typeof parsed === 'string' ? parsed : text;
+    };
 
-    let html = tokens.map(token => {
-      if (token.type === 'text') return token.value;
-      if (token.type === 'blank') return `<input type="text" data-blank="${token.key}" class="oqse-blank" />`;
+    const htmlSanitizer = options?.sanitizer ? options.sanitizer : (html: string) => html;
 
-      if (token.type === 'asset' && token.media) {
-        const url = token.media.value;
-        if (token.media.type === 'image') return `<img src="${url}" alt="${token.media.altText || ''}" class="oqse-asset-img" />`;
-        if (token.media.type === 'audio') return `<audio src="${url}" controls class="oqse-asset-audio"></audio>`;
-        if (token.media.type === 'video') return `<video src="${url}" controls class="oqse-asset-video"></video>`;
+    return prepareRichTextForDisplay(
+      rawText,
+      undefined,
+      {
+        markdownParser: mdParser,
+        htmlSanitizer,
+        assetReplacer: (key) => {
+          const media = this.sessionAssets[key];
+          if (!media) return '';
+          const url = media.value;
+          if (media.type === 'image') return `<img src="${url}" alt="${media.altText || ''}" class="oqse-asset-img" />`;
+          if (media.type === 'audio') return `<audio src="${url}" controls class="oqse-asset-audio"></audio>`;
+          if (media.type === 'video') return `<video src="${url}" controls class="oqse-asset-video"></video>`;
+          return '';
+        },
+        blankReplacer: (key) => `<input type="text" data-blank="${key}" class="oqse-blank" />`,
       }
-      return '';
-    }).join('');
-
-    if (options?.markdownParser) {
-      const parsed = options.markdownParser(html);
-      if (typeof parsed === 'string') {
-        html = parsed;
-      }
-    }
-    if (options?.sanitizer) {
-      html = options.sanitizer(html);
-    }
-
-    return html;
+    );
   }
 
   // ── Mock helpers ─────────────────────────────────────────────────────────
@@ -668,7 +666,16 @@ export class MemizyPlugin {
     }
 
     const existing = this.progressRecords[itemId] ?? null;
-    const record = defaultLeitnerReducer(existing, isCorrect, timeSpent, options);
+    const reduced = defaultLeitnerReducer(existing, isCorrect, timeSpent, options);
+    const record = reduced.lastAnswer
+      ? {
+        ...reduced,
+        lastAnswer: {
+          ...reduced.lastAnswer,
+          hintsUsed: options?.hintsUsed ?? 0,
+        },
+      }
+      : reduced;
     this.progressRecords[itemId] = record;
     this.send('SYNC_PROGRESS', { [itemId]: record } as Record<string, ProgressRecord>);
     this.persistStandaloneState();
@@ -696,6 +703,7 @@ export class MemizyPlugin {
       isCorrect: false,
       answeredAt: new Date().toISOString(),
       timeSpent,
+      hintsUsed: 0,
       isSkipped: true,
     };
 

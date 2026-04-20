@@ -9,6 +9,8 @@ Official TypeScript SDK for building Memizy plugins on top of the OQSE ecosystem
 
 Memizy plugins run inside a sandboxed iframe and communicate with the host via a typed `postMessage` protocol. The SDK provides:
 
+Lightweight and fully typed, built directly on top of the `@memizy/oqse` core.
+
 - lifecycle handshake (`PLUGIN_READY` -> `INIT_SESSION`)
 - internal Leitner progress reducer with automatic `SYNC_PROGRESS`
 - CRUD helpers for item and metadata mutation

@@ -14,7 +14,7 @@ export type Bucket = ProgressRecord['bucket'];
 export type ProgressStats = import('@memizy/oqse').StatsObject;
 export type ProgressLastAnswer = LastAnswerObject;
 export type OQSEPMeta = import('@memizy/oqse').ProgressMeta;
-export type OQSEPDocument = import('@memizy/oqse').OQSEPFile;
+export type OQSEPDocument = import('@memizy/oqse').OQSEProgress;
 
 export interface SessionFuelState {
   balance: number;
