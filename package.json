@@ -46,6 +46,6 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
-    "@memizy/oqse": "^0.1.2"
+    "@memizy/oqse": "^0.1.4"
   }
 }

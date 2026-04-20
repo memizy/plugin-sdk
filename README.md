@@ -57,7 +57,15 @@ function render(item: OQSEItem): void {
 
 ## Standalone Controls Mode
 
-The standalone helper UI supports two modes:
+Standalone mode is a lightweight development environment focused on DX and fast Vite HMR loops.
+
+State model:
+
+- one active set + progress are kept in `sessionStorage` under `memizy_dev_state`
+- state survives page reloads within the current browser tab to preserve HMR flow
+- state is ephemeral and intended for development/testing
+
+Control modes:
 
 - `auto` (default): floating gear is visible and the dialog auto-opens when no set is loaded
 - `hidden`: no gear icon; open dialog programmatically when needed
@@ -71,6 +79,16 @@ const plugin = new MemizyPlugin({
 
 plugin.openStandaloneControls();
 ```
+
+### Local Asset Testing in Standalone
+
+For local development, prefer one of these patterns:
+
+- use absolute URLs in JSON assets (for example `http://localhost:5173/image.png`)
+- inject assets via `plugin.useMockData()`
+- test the upload flow with `uploadAsset()`, which creates session-local `blob:` URLs in standalone mode
+
+If your plugin needs richer local persistence for its own feature set, implement it in plugin code with standard browser APIs (`localStorage` / `IndexedDB`). The SDK stays focused on host communication and runtime bridge behavior.
 
 ## Text Processing API
 

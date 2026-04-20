@@ -428,7 +428,6 @@ const plugin = new MemizyPlugin({
   debug: true,                            // Log SDK lifecycle events to console (default: false)
   standaloneControlsMode: 'auto',         // 'auto' (gear visible) | 'hidden' (no gear, manual open)
   standaloneUiPosition: 'bottom-right',   // Gear corner in auto mode
-  showStandaloneControls: true,           // Legacy alias: true => 'auto', false => 'hidden'
 });
 ```
 
@@ -438,16 +437,25 @@ The constructor immediately registers the `message` event listener and sends `PL
 
 #### Standalone Mode
 
+Standalone mode is a lightweight, ephemeral development runtime focused on DX and fast Vite HMR.
+
 The SDK automatically detects when the plugin is not running inside a Memizy host frame (`window.self === window.top`) and handles session startup without any extra plugin code.
+
+State behavior:
+
+- The active standalone set + progress are persisted to `sessionStorage` under `memizy_dev_state`.
+- This keeps state alive across page reloads in the same tab for smoother HMR development.
+- The state is intentionally ephemeral and development-oriented.
 
 **Priority chain (evaluated in order):**
 
 | # | Condition | Action |
 |---|-----------|--------|
 | 1 | Host iframe — `INIT_SESSION` postMessage arrives | Normal path; `onInit` fired by host message |
-| 2 | `useMockData()` was called | `onInit` fired after `standaloneTimeout` ms (default: 2000) if no host message |
-| 3 | URL contains `?set=<url>` | OQSE JSON fetched automatically; `onInit` fired |
-| 4 | None of the above | Standalone controls are created; dialog auto-opens only in `standaloneControlsMode: 'auto'` |
+| 2 | `sessionStorage[memizy_dev_state]` contains valid standalone state | Session resumes immediately from saved items + progress |
+| 3 | `useMockData()` was called | `onInit` fired after `standaloneTimeout` ms (default: 2000) if no host message |
+| 4 | URL contains `?set=<url>` | OQSE JSON fetched automatically; `onInit` fired |
+| 5 | None of the above | Standalone controls are created; dialog auto-opens only in `standaloneControlsMode: 'auto'` |
 
 **Standalone controls modes**
 
@@ -458,7 +466,7 @@ The SDK provides two standalone control modes:
 
 The settings dialog includes two tabs:
 
-- **Study Set** — load via URL input, paste OQSE JSON text, or upload/drag-and-drop a `.oqse.json` file
+- **Study Set** — load via URL input, paste OQSE JSON text, or upload/drag-and-drop a `.json` file
 - **Progress** — load OQSEP progress via pasted JSON text or `.oqsep` file upload
 
 When no `?set=` URL or mock data is present, the dialog opens automatically only in `auto` mode. After a set is loaded, the dialog hides.
@@ -476,6 +484,16 @@ http://localhost:5173/?set=https://example.com/my-set/data.oqse.json
 ```
 
 The SDK fetches the URL, parses the OQSE JSON, and fires `onInit` with a synthetic `InitSessionPayload`. Plugin source code remains unchanged.
+
+**Local asset testing**
+
+For standalone development:
+
+- Use absolute URLs in JSON assets (for example `http://localhost:5173/image.png`).
+- Use `useMockData()` to inject local test assets.
+- Use `uploadAsset()` to test asset flow; standalone mode returns session-local `blob:` URLs.
+
+If your plugin needs advanced local persistence for plugin-specific features, implement it in plugin code with browser APIs (`localStorage` / `IndexedDB`). The SDK remains focused on protocol bridge behavior.
 
 **Automatic asset resolution**
 

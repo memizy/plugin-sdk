@@ -26,10 +26,10 @@ import type {
 type Bucket = ProgressRecord['bucket'];
 import { defaultLeitnerReducer } from './leitner';
 import { ItemTimerManager } from './timers';
-import { StandaloneStorage } from './storage';
-import { importOqseArchive, exportOqseArchive } from './zipBridge';
 import type { StandaloneUICallbacks } from '../ui/standalone';
 import { StandaloneUI } from '../ui/standalone';
+
+const DEV_STATE_KEY = 'memizy_dev_state';
 
 // Re-export so consumers can import everything from '@memizy/plugin-sdk'
 export type {
@@ -84,6 +84,12 @@ export class MemizyPlugin {
   // Progress loaded in standalone mode (before a session starts)
   private standaloneProgress: Record<string, ProgressRecord> | null = null;
 
+  // Active standalone session items (for sessionStorage persistence).
+  private standaloneItems: OQSEItem[] = [];
+
+  // Temporary local binary assets in standalone mode.
+  private standaloneAssets = new Map<string, File | Blob>();
+
   // Whether INIT_SESSION (or standalone equivalent) has been received
   private initialized = false;
 
@@ -92,9 +98,6 @@ export class MemizyPlugin {
 
   // Shadow DOM standalone UI instance
   private standaloneUI: StandaloneUI | null = null;
-
-  // IndexedDB storage engine for standalone mode
-  private readonly storage = new StandaloneStorage();
 
   // Asset bridge: pending promise resolvers keyed by requestId
   private readonly pendingAssetRequests = new Map<
@@ -235,27 +238,51 @@ export class MemizyPlugin {
     return false;
   }
 
+  private persistStandaloneState(): void {
+    if (!this.isStandalone()) return;
+    try {
+      sessionStorage.setItem(
+        DEV_STATE_KEY,
+        JSON.stringify({
+          items: this.standaloneItems,
+          progress: this.progressRecords,
+        }),
+      );
+    } catch {
+      // Ignore storage quota/security errors in dev mode.
+    }
+  }
+
+  private restoreStandaloneState(): InitSessionPayload | null {
+    try {
+      const raw = sessionStorage.getItem(DEV_STATE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { items?: unknown; progress?: unknown };
+      if (!Array.isArray(parsed.items) || parsed.items.length === 0) return null;
+
+      const restoredItems = parsed.items as OQSEItem[];
+      const restoredProgress =
+        parsed.progress && typeof parsed.progress === 'object'
+          ? parsed.progress as Record<string, ProgressRecord>
+          : null;
+
+      this.standaloneProgress = restoredProgress;
+      return this.buildStandalonePayload(restoredItems, {});
+    } catch {
+      return null;
+    }
+  }
+
   // ── Standalone mode ──────────────────────────────────────────────────────
 
   private async maybeInitStandaloneMode(): Promise<void> {
     if (this.initialized) return;
     if (window.self !== window.top) return;
 
-    // Initialise IndexedDB first — fast no-op on subsequent calls
-    await this.storage.init();
-
-    // Auto-restore a previously saved session (bypasses the UI entirely)
-    const saved = await this.storage.getSet();
-    if (saved) {
-      this.log('Standalone: restoring saved set from IndexedDB');
-      const savedProgress = await this.storage.getProgress();
-      if (savedProgress) this.standaloneProgress = savedProgress;
-      const rawPayload = this.buildStandalonePayload(
-        saved.items,
-        (saved.meta.assets ?? {}) as Record<string, MediaObject>,
-      );
-      const payload = await this.resolveLocalAssets(rawPayload);
-      this.activateSession(payload);
+    const restored = this.restoreStandaloneState();
+    if (restored) {
+      this.log('Standalone: restoring dev session from sessionStorage');
+      this.activateSession(restored);
       return;
     }
 
@@ -296,7 +323,8 @@ export class MemizyPlugin {
           onError(result.error);
         } else {
           this.standaloneProgress = result.records!;
-          void this.storage.saveProgress(result.records!);
+          Object.assign(this.progressRecords, result.records!);
+          this.persistStandaloneState();
         }
       },
       onLoadProgressFile: (file, onError) => {
@@ -305,34 +333,8 @@ export class MemizyPlugin {
       getStandaloneProgress: () => this.standaloneProgress,
       setStandaloneProgress: (records) => {
         this.standaloneProgress = records;
-      },
-      onReset: () => {
-        void this.storage.clearAll().then(() => location.reload());
-      },
-      onLoadOqseArchive: (file, onError) => {
-        void importOqseArchive(file, this.storage)
-          .then(() => location.reload())
-          .catch((err: unknown) => onError(String(err)));
-      },
-      onExportOqse: () => {
-        void exportOqseArchive(this.storage);
-      },
-      onExportProgress: () => {
-        const snap = this.getProgress();
-        const oqsep = {
-          version:   '0.1',
-          meta:      { exportedAt: new Date().toISOString() },
-          records:   snap,
-        };
-        const blob   = new Blob([JSON.stringify(oqsep, null, 2)], { type: 'application/json' });
-        const url    = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `progress-${Date.now()}.oqsep`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        Object.assign(this.progressRecords, records);
+        this.persistStandaloneState();
       },
     };
   }
@@ -366,9 +368,6 @@ export class MemizyPlugin {
 
       this.log(`Fetched OQSE: ${rawItems.length} items`);
       payload = this.buildStandalonePayload(rawItems, metaAssets);
-      // Persist to IndexedDB so the set survives a page reload
-      void this.storage.saveItems(rawItems);
-      void this.storage.updateMeta((meta ?? {}) as Partial<OQSEMeta>);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[memizy-plugin-sdk] Standalone fetch failed:', msg);
@@ -387,9 +386,6 @@ export class MemizyPlugin {
       const metaAssets = (meta?.['assets'] ?? {}) as Record<string, MediaObject>;
       this.log(`Parsed OQSE text: ${rawItems.length} items`);
       const payload = this.buildStandalonePayload(rawItems, metaAssets);
-      // Persist to IndexedDB so the set survives a page reload
-      void this.storage.saveItems(rawItems);
-      void this.storage.updateMeta((meta ?? {}) as Partial<OQSEMeta>);
       this.activateSession(payload);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -428,6 +424,7 @@ export class MemizyPlugin {
   private activateSession(payload: InitSessionPayload): void {
     this.sessionAborted = false;
     this.initialized = true;
+    this.standaloneItems = [...payload.items];
     this.sessionAssets = payload.assets || {};
     if (this.standaloneTimer !== null) {
       clearTimeout(this.standaloneTimer);
@@ -438,6 +435,7 @@ export class MemizyPlugin {
     }
     this.standaloneUI?.hide();
     this.sessionStartTime = Date.now();
+    this.persistStandaloneState();
     this.log('Calling onInit handler');
     this.initHandler?.(payload);
   }
@@ -474,43 +472,13 @@ export class MemizyPlugin {
         onError(result.error);
       } else {
         this.standaloneProgress = result.records!;
-        void this.storage.saveProgress(result.records!);
+        Object.assign(this.progressRecords, result.records!);
+        this.persistStandaloneState();
         this.log(`Progress loaded from file: ${Object.keys(result.records!).length} records`);
       }
     };
     reader.onerror = () => onError('Failed to read file.');
     reader.readAsText(file);
-  }
-
-  // ── Asset resolution (local blob: URL patching) ─────────────────────────
-
-  /**
-   * Scans a payload's `assets` map and each item's `assets` map.
-   * Any `value` that matches a key stored in `StandaloneStorage` (e.g. `assets/image.png`)
-   * is replaced with a `blob:` URL so the plugin can render it directly.
-   * Only used in Standalone Mode after a ZIP import auto-restore.
-   */
-  private async resolveLocalAssets(payload: InitSessionPayload): Promise<InitSessionPayload> {
-    const tryResolve = async (assets: Record<string, MediaObject>): Promise<void> => {
-      for (const key of Object.keys(assets)) {
-        const media = assets[key]!;
-        const val   = media.value;
-        if (typeof val === 'string' && /^assets\//i.test(val)) {
-          try {
-            const blob   = await this.storage.getAsset(val);
-            media.value  = URL.createObjectURL(blob);
-          } catch {
-            // Not in storage — leave as-is
-          }
-        }
-      }
-    };
-    await tryResolve(payload.assets);
-    for (const item of payload.items) {
-      const ia = (item['assets'] ?? {}) as Record<string, MediaObject>;
-      if (ia && typeof ia === 'object') await tryResolve(ia);
-    }
-    return payload;
   }
 
   // ── Static asset URL resolver ─────────────────────────────────────────────
@@ -703,7 +671,7 @@ export class MemizyPlugin {
     const record = defaultLeitnerReducer(existing, isCorrect, timeSpent, options);
     this.progressRecords[itemId] = record;
     this.send('SYNC_PROGRESS', { [itemId]: record } as Record<string, ProgressRecord>);
-    if (this.isStandalone()) void this.storage.saveProgress({ [itemId]: record });
+    this.persistStandaloneState();
     this.log(
       `answer [${itemId}]: correct=${isCorrect}, bucket=${record.bucket}, streak=${record.stats.streak}`,
     );
@@ -734,7 +702,7 @@ export class MemizyPlugin {
     const record: ProgressRecord = { ...existing, lastAnswer };
     this.progressRecords[itemId] = record;
     this.send('SYNC_PROGRESS', { [itemId]: record } as Record<string, ProgressRecord>);
-    if (this.isStandalone()) void this.storage.saveProgress({ [itemId]: record });
+    this.persistStandaloneState();
     this.log(`skip [${itemId}], timeSpent=${timeSpent}ms`);
     return this;
   }
@@ -747,7 +715,7 @@ export class MemizyPlugin {
     if (!this.canRun('syncProgress')) return this;
     Object.assign(this.progressRecords, records);
     this.send('SYNC_PROGRESS', records);
-    if (this.isStandalone()) void this.storage.saveProgress(records);
+    this.persistStandaloneState();
     this.log(`syncProgress: ${Object.keys(records).length} records pushed`);
     return this;
   }
@@ -762,8 +730,13 @@ export class MemizyPlugin {
   /** Persist new or updated items to the host's persistent storage. The host merges by `id`. */
   saveItems(items: OQSEItem[]): this {
     if (!this.canRun('saveItems')) return this;
-    if (this.isStandalone()) void this.storage.saveItems(items);
+    if (this.isStandalone()) {
+      const map = new Map(this.standaloneItems.map(it => [it.id, it]));
+      for (const item of items) map.set(item.id, item);
+      this.standaloneItems = [...map.values()];
+    }
     this.send('MUTATE_ITEMS', { items });
+    this.persistStandaloneState();
     this.log(`saveItems: ${items.length} item(s)`);
     return this;
   }
@@ -771,8 +744,12 @@ export class MemizyPlugin {
   /** Delete items from the host's persistent storage by their UUIDs. */
   deleteItems(itemIds: string[]): this {
     if (!this.canRun('deleteItems')) return this;
-    if (this.isStandalone()) void this.storage.deleteItems(itemIds);
+    if (this.isStandalone()) {
+      const toDelete = new Set(itemIds);
+      this.standaloneItems = this.standaloneItems.filter(item => !toDelete.has(item.id));
+    }
     this.send('DELETE_ITEMS', { itemIds });
+    this.persistStandaloneState();
     this.log(`deleteItems: ${itemIds.length} id(s)`);
     return this;
   }
@@ -780,8 +757,14 @@ export class MemizyPlugin {
   /** Update the study set's metadata (title, description, tags, etc.) in the host's storage. */
   updateMeta(meta: Partial<OQSEMeta>): this {
     if (!this.canRun('updateMeta')) return this;
-    if (this.isStandalone()) void this.storage.updateMeta(meta);
+    if (this.isStandalone()) {
+      const incomingAssets = meta.assets as Record<string, MediaObject> | undefined;
+      if (incomingAssets && typeof incomingAssets === 'object') {
+        this.sessionAssets = { ...this.sessionAssets, ...incomingAssets };
+      }
+    }
     this.send('MUTATE_META', { meta });
+    this.persistStandaloneState();
     this.log('updateMeta:', Object.keys(meta).join(', '));
     return this;
   }
@@ -799,22 +782,22 @@ export class MemizyPlugin {
     const requestId = MemizyPlugin.newRequestId();
     const key = suggestedKey ?? (file instanceof File ? file.name : `asset-${requestId}`);
 
-    // Standalone shortcut: persist locally and resolve with a blob: URL immediately
+    // Standalone shortcut: store temporary in-memory asset and resolve immediately.
     if (this.isStandalone()) {
-      return this.storage.saveAsset(key, file).then(() => {
-        const blobUrl = URL.createObjectURL(file);
-        const mimeType = file instanceof File ? file.type : (file.type ?? 'application/octet-stream');
-        const mediaObject: MediaObject = {
-          type: mimeType.startsWith('audio') ? 'audio'
-              : mimeType.startsWith('video') ? 'video'
-              : mimeType.startsWith('model') || mimeType.includes('gltf') || mimeType.includes('glb') ? 'model'
-              : 'image',
-          value: blobUrl,
-          mimeType,
-        };
-        this.log(`uploadAsset standalone: key=${key}, url=${blobUrl}`);
-        return mediaObject;
-      });
+      this.standaloneAssets.set(key, file);
+      const blobUrl = URL.createObjectURL(file);
+      const mimeType = file instanceof File ? file.type : (file.type ?? 'application/octet-stream');
+      const mediaObject: MediaObject = {
+        type: mimeType.startsWith('audio') ? 'audio'
+            : mimeType.startsWith('video') ? 'video'
+            : mimeType.startsWith('model') || mimeType.includes('gltf') || mimeType.includes('glb') ? 'model'
+            : 'image',
+        value: blobUrl,
+        mimeType,
+      };
+      this.sessionAssets[key] = mediaObject;
+      this.log(`uploadAsset standalone: key=${key}, url=${blobUrl}`);
+      return Promise.resolve(mediaObject);
     }
 
     return new Promise<MediaObject>((resolve, reject) => {
@@ -835,10 +818,14 @@ export class MemizyPlugin {
     if (!this.canRun('getRawAsset')) {
       return Promise.reject(new Error('[memizy-plugin-sdk] getRawAsset() ignored after SESSION_ABORTED'));
     }
-    // Standalone shortcut: read directly from IndexedDB
+    // Standalone shortcut: read from temporary in-memory asset map.
     if (this.isStandalone()) {
       this.log(`getRawAsset standalone: key=${key}`);
-      return this.storage.getAsset(key);
+      const file = this.standaloneAssets.get(key);
+      if (!file) {
+        return Promise.reject(new Error(`[memizy-plugin-sdk] Standalone asset not found: ${key}`));
+      }
+      return Promise.resolve(file);
     }
 
     const requestId = MemizyPlugin.newRequestId();
@@ -964,7 +951,10 @@ export class MemizyPlugin {
     this.sessionAborted = false;
     this.initialized = true;
     const payload = this.buildMockPayload();
+    this.standaloneItems = [...payload.items];
+    this.sessionAssets = payload.assets || {};
     if (payload.progress) this.progressRecords = { ...payload.progress };
+    this.persistStandaloneState();
     this.standaloneUI?.hide();
     this.sessionStartTime = Date.now();
     this.initHandler?.(payload);
@@ -1017,5 +1007,6 @@ export class MemizyPlugin {
       reject(new Error(`[memizy-plugin-sdk] Plugin destroyed while waiting for asset request ${id}`));
     }
     this.pendingAssetRequests.clear();
+    this.standaloneAssets.clear();
   }
 }

@@ -16,14 +16,6 @@ export interface StandaloneUICallbacks {
   getStandaloneProgress: () => Record<string, ProgressRecord> | null;
   /** Called when progress is loaded via the UI — stores it on the plugin. */
   setStandaloneProgress: (records: Record<string, ProgressRecord>) => void;
-  /** Clear all persisted IndexedDB data and reload the page. */
-  onReset: () => void;
-  /** Import a full .oqse ZIP archive (saves to storage then reloads). */
-  onLoadOqseArchive: (file: File, onError: (msg: string) => void) => void;
-  /** Trigger .oqse ZIP export download. */
-  onExportOqse: () => void;
-  /** Trigger .oqsep progress JSON download. */
-  onExportProgress: () => void;
 }
 
 /** Manages the Shadow DOM gear button + tabbed dialog in standalone mode. */
@@ -116,7 +108,7 @@ export class StandaloneUI {
           <div class="section">
             <label>Load from URL</label>
             <div class="row">
-              <input type="url" id="url-input" placeholder="https://example.com/data.oqse.json" autocomplete="off" spellcheck="false" />
+              <input type="url" id="url-input" placeholder="https://example.com/data.json" autocomplete="off" spellcheck="false" />
               <button class="btn btn-primary btn-sm" id="url-btn">Load</button>
             </div>
           </div>
@@ -131,8 +123,8 @@ export class StandaloneUI {
             <label>Upload file</label>
             <div class="drop-zone" id="set-drop">
               <span class="dz-icon">\ud83d\udcc1</span>
-              Drop <code>.oqse.json</code> or <code>.oqse</code> here or click to browse
-              <input type="file" id="set-file" accept=".json,.oqse" hidden />
+              Drop <code>.json</code> file here or click to browse
+              <input type="file" id="set-file" accept=".json" hidden />
             </div>
           </div>
         </div>
@@ -157,13 +149,6 @@ export class StandaloneUI {
 
         <div class="status-bar" id="status-msg"></div>
         <div class="hint">Tip: append <code>?set=&lt;url&gt;</code> to the page URL to auto-load</div>
-        <div class="export-bar">
-          <button class="btn btn-export" id="export-oqse-btn">📥 Export Set (.oqse)</button>
-          <button class="btn btn-export" id="export-progress-btn">📥 Export Progress (.oqsep)</button>
-        </div>
-        <div class="reset-bar">
-          <button class="btn btn-reset" id="reset-btn">🗑️ Reset Local Data</button>
-        </div>
       </div>
     `;
   }
@@ -197,17 +182,6 @@ export class StandaloneUI {
         el.innerHTML = '';
       }
     };
-
-    // ── Export ──
-    $('export-oqse-btn')!.addEventListener('click', () => cb.onExportOqse());
-    $('export-progress-btn')!.addEventListener('click', () => cb.onExportProgress());
-
-    // ── Reset ──
-    $('reset-btn')!.addEventListener('click', () => {
-      if (confirm('Clear all locally saved set data, progress and assets? This cannot be undone.')) {
-        cb.onReset();
-      }
-    });
 
     // ── Open / close ──
     gearBtn?.addEventListener('click', () => overlay.classList.toggle('hidden'));
@@ -265,11 +239,7 @@ export class StandaloneUI {
     const setDrop      = $('set-drop')!;
     const handleSetFile = (file: File) => {
       clearStatus();
-      if (file.name.endsWith('.oqse')) {
-        cb.onLoadOqseArchive(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
-      } else {
-        cb.onLoadFile(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
-      }
+      cb.onLoadFile(file, (msg) => setStatus('\u274c ' + msg, 's-error'));
     };
     setDrop.addEventListener('click', () => setFileInput.click());
     setFileInput.addEventListener('change', () => {
