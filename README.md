@@ -171,9 +171,10 @@ At session startup, the SDK stores `INIT_SESSION.payload.assets` in an internal 
 ## Documentation
 
 - Full API and protocol reference: [plugin-sdk-api.md](plugin-sdk-api.md)
-- OQSE core specification: [memizy/oqse-specification/oqse.md](https://github.com/memizy/oqse-specification/blob/main/oqse.md)
-- OQSE manifest specification: [memizy/oqse-specification/oqse-manifest.md](https://github.com/memizy/oqse-specification/blob/main/oqse-manifest.md)
-- OQSE progress specification: [memizy/oqse-specification/oqse-progress.md](https://github.com/memizy/oqse-specification/blob/main/oqse-progress.md)
+- OQSEM (Application Manifest): [oqse-manifest.md](https://github.com/memizy/oqse-specification/blob/main/oqse-manifest.md)
+- OQSE (Core): [oqse.md](https://github.com/memizy/oqse-specification/blob/main/oqse.md)
+- OQSEH (Set Headers): [oqse-header.md](https://github.com/memizy/oqse-specification/blob/main/oqse-header.md)
+- OQSEP (User Progress): [oqse-progress.md](https://github.com/memizy/oqse-specification/blob/main/oqse-progress.md)
 
 ## License
 

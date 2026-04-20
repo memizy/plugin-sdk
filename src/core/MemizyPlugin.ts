@@ -19,7 +19,6 @@ import type {
   InitSessionPayload,
   MemizyPluginOptions,
   SessionAbortedReason,
-  SessionFuelState,
   SessionSettings,
   StandaloneControlsMode,
 } from '../types/messages';
@@ -34,7 +33,7 @@ const DEV_STATE_KEY = 'memizy_dev_state';
 
 // Re-export so consumers can import everything from '@memizy/plugin-sdk'
 export type {
-  OQSEItem, OQSEMeta, MediaObject, SessionFuelState, SessionSettings, InitSessionPayload,
+  OQSEItem, OQSEMeta, MediaObject, SessionSettings, InitSessionPayload,
 };
 export type { AnswerOptions, ExitOptions, MemizyPluginOptions };
 
@@ -80,6 +79,7 @@ export class MemizyPlugin {
   private mockItems: OQSEItem[] | null = null;
   private mockSettings: Partial<SessionSettings> | null = null;
   private mockAssets: Record<string, MediaObject> | null = null;
+  private mockSetMeta?: OQSEMeta;
   private standaloneTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Progress loaded in standalone mode (before a session starts)
@@ -368,7 +368,7 @@ export class MemizyPlugin {
       }
 
       this.log(`Fetched OQSE: ${rawItems.length} items`);
-      payload = this.buildStandalonePayload(rawItems, metaAssets);
+      payload = this.buildStandalonePayload(rawItems, metaAssets, meta as OQSEMeta | undefined);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[memizy-plugin-sdk] Standalone fetch failed:', msg);
@@ -386,7 +386,7 @@ export class MemizyPlugin {
       const meta = oqse['meta'] as Record<string, unknown> | undefined;
       const metaAssets = (meta?.['assets'] ?? {}) as Record<string, MediaObject>;
       this.log(`Parsed OQSE text: ${rawItems.length} items`);
-      const payload = this.buildStandalonePayload(rawItems, metaAssets);
+      const payload = this.buildStandalonePayload(rawItems, metaAssets, meta as OQSEMeta | undefined);
       this.activateSession(payload);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -405,18 +405,16 @@ export class MemizyPlugin {
   private buildStandalonePayload(
     items: OQSEItem[],
     assets: Record<string, MediaObject>,
+    setMeta?: OQSEMeta,
   ): InitSessionPayload {
     return {
       sessionId: `standalone-${Date.now()}`,
       items,
       assets,
+      setMeta,
       settings: {
-        shuffle: false,
-        masteryMode: false,
-        maxItems: null,
         locale: navigator.language.split('-')[0] ?? 'en',
         theme: 'light',
-        fuel: { balance: 0, multiplier: 1 },
       },
       progress: this.standaloneProgress ?? undefined,
     };
@@ -596,18 +594,15 @@ export class MemizyPlugin {
 
   private buildMockPayload(): InitSessionPayload {
     const defaults: SessionSettings = {
-      shuffle: false,
-      masteryMode: false,
-      maxItems: null,
       locale: navigator.language.split('-')[0] ?? 'en',
       theme: 'light',
-      fuel: { balance: 0, multiplier: 1 },
       ...this.mockSettings,
     };
     return {
       sessionId: `mock-${Date.now()}`,
       items: this.mockItems ?? [],
       assets: this.mockAssets ?? {},
+      setMeta: this.mockSetMeta,
       settings: defaults,
       progress: this.standaloneProgress ?? undefined,
     };
@@ -935,11 +930,13 @@ export class MemizyPlugin {
       settings?: Partial<SessionSettings>;
       assets?: Record<string, MediaObject>;
       progress?: Record<string, ProgressRecord>;
+      setMeta?: OQSEMeta;
     },
   ): this {
     this.mockItems = items;
     this.mockSettings = options?.settings ?? null;
     this.mockAssets = options?.assets ?? null;
+    this.mockSetMeta = options?.setMeta;
     if (options?.progress) this.standaloneProgress = options.progress;
     this.standaloneUI?.destroy();
     this.standaloneUI = null;
@@ -976,6 +973,24 @@ export class MemizyPlugin {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Safely retrieves URL search parameters passed to the plugin iframe.
+   * Useful for reading launch parameters provided by the host (e.g., `?mode=edit`).
+   * @returns A key-value record of URL parameters.
+   */
+  public getLaunchParams(): Record<string, string> {
+    const params: Record<string, string> = {};
+    try {
+      const search = new URLSearchParams(window.location.search);
+      search.forEach((value, key) => {
+        params[key] = value;
+      });
+    } catch (e) {
+      this.log('Failed to parse URL parameters.', 'err');
+    }
+    return params;
   }
 
   /**

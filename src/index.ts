@@ -24,7 +24,6 @@ export type {
 
 // Protocol option types
 export type {
-  SessionFuelState,
   SessionSettings,
   InitSessionPayload,
   Confidence,

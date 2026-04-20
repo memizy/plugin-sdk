@@ -16,24 +16,16 @@ export type ProgressLastAnswer = LastAnswerObject;
 export type OQSEPMeta = import('@memizy/oqse').ProgressMeta;
 export type OQSEPDocument = import('@memizy/oqse').OQSEProgress;
 
-export interface SessionFuelState {
-  balance: number;
-  multiplier: number;
-}
-
 export interface SessionSettings {
-  shuffle: boolean;
-  masteryMode: boolean;
-  maxItems: number | null;
   locale: string;
   theme: 'light' | 'dark' | 'system';
-  fuel: SessionFuelState;
 }
 
 export interface InitSessionPayload {
   sessionId: string;
   items: OQSEItem[];
   assets: Record<string, MediaObject>;
+  setMeta?: import('@memizy/oqse').OQSEMeta;
   settings: SessionSettings;
   progress?: Record<string, ProgressRecord>;
 }

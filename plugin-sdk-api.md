@@ -11,6 +11,7 @@
   - [Plugin → Host messages](#plugin--host-messages)
 - [Message Reference Table](#message-reference-table)
 - [Development Guidelines](#development-guidelines)
+- [Documentation](#documentation)
 - [SDK Reference](#sdk-reference)
   - [Installation](#installation)
   - [API](#api)
@@ -135,16 +136,10 @@ Sent in response to `PLUGIN_READY`. Contains the complete study material for the
     sessionId: string,               // Unique ID for this play session
     items: OQSEItem[],               // Full OQSE items array (subset of file)
     assets: Record<string, MediaObject>,  // Set-level shared assets from meta.assets
+    setMeta?: OQSEMeta,              // Optional set-level metadata from the loaded OQSE file
     settings: {
-      shuffle: boolean,              // Whether items were shuffled by the host
-      masteryMode: boolean,          // Only serve items below mastery threshold
-      maxItems: number | null,       // Cap on items served (null = all)
       locale: string,                // BCP 47 locale of the UI ("en", "cs")
-      theme: 'light' | 'dark' | 'system',
-      fuel: {
-        balance: number,             // Current Fuel balance of the user
-        multiplier: number           // Active streak multiplier (e.g., 1.5)
-      }
+      theme: 'light' | 'dark' | 'system'
     },
     progress?: Record<string, ProgressRecord>  // OQSEP progress (keyed by item UUID)
   }
@@ -389,15 +384,19 @@ Sent for non-fatal errors that the Host should log. Plugin MUST continue running
   Canonical manifest reference:
    [OQSE Manifest Specification](https://github.com/memizy/oqse-specification/blob/main/oqse-manifest.md).
 
-For broader schema and format requirements, refer to the
-[OQSE Core Specification](https://github.com/memizy/oqse-specification/blob/main/oqse.md)
-and [OQSE Progress Specification](https://github.com/memizy/oqse-specification/blob/main/oqse-progress.md).
+## Documentation
+
+- Full API and protocol reference: [plugin-sdk-api.md](plugin-sdk-api.md)
+- OQSEM (Application Manifest): [oqse-manifest.md](https://github.com/memizy/oqse-specification/blob/main/oqse-manifest.md)
+- OQSE (Core Study Sets): [oqse.md](https://github.com/memizy/oqse-specification/blob/main/oqse.md)
+- OQSEH (Set Headers/Registries): [oqse-header.md](https://github.com/memizy/oqse-specification/blob/main/oqse-header.md)
+- OQSEP (User Progress): [oqse-progress.md](https://github.com/memizy/oqse-specification/blob/main/oqse-progress.md)
 
 ---
 
 ## SDK Reference
 
-The `@memizy/plugin-sdk` is a zero-dependency TypeScript library that abstracts the full message protocol. It is the recommended (and for published plugins, required) way to build Memizy plugins.
+The `@memizy/plugin-sdk` is a lightweight, fully typed TypeScript library built on top of `@memizy/oqse`. It is the recommended (and for published plugins, required) way to build Memizy plugins.
 
 **Source:** [src/index.ts](src/index.ts)
 
@@ -508,7 +507,8 @@ All relative `MediaObject.value` paths inside `meta.assets` and per-item `assets
 plugin.onInit((payload: InitSessionPayload) => {
   // payload.items    — OQSE items for this session
   // payload.assets    — set-level shared assets, pre-resolved to absolute URLs
-  // payload.settings  — session settings (theme, locale, fuel, etc.)
+  // payload.setMeta   — optional set-level OQSE meta object
+  // payload.settings  — session environment settings (theme, locale)
   // payload.progress  — existing ProgressRecord map (may be undefined)
 }): this
 
