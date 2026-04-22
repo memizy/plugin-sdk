@@ -300,26 +300,23 @@ export class MemizySDK {
    * `?set=<url>` auto-loader, and — if no data is available — show the
    * Standalone UI and arm the pending-init gate so `sysInit()` blocks
    * until the user provides a study set.
+   *
+   * Priority order:
+   *   1. `?set=<url>` URL parameter — ALWAYS wins, overrides everything.
+   *   2. `mockData` passed to `connect()`, or previously persisted
+   *      `sessionStorage` state.
+   *   3. Interactive load via the Standalone UI modal.
    */
   private async bootstrapStandalone(
     mockData: StandaloneMockData | undefined,
   ): Promise<HostApi> {
-    const mock = new MockHost(mockData, this.debug);
+    const setUrl = readSetUrlParam();
+    // When `?set=` is present, bypass mockData/sessionStorage entirely:
+    // the URL is the single source of truth for this page load.
+    const mock = new MockHost(mockData, this.debug, { forceFresh: setUrl !== null });
     this.mockHost = mock;
 
-    const setUrl = readSetUrlParam();
-    const hasSeed = mock.hasStudySet();
-
-    // Case 1 — data already present (mockData or restored sessionStorage).
-    if (hasSeed) {
-      if (this.standaloneControlsMode === 'auto') {
-        this.standaloneUI = this.buildStandaloneUI(false);
-      }
-      return mock;
-    }
-
-    // Case 2 — ?set= URL auto-loader. Still show the gear so the dev can
-    // swap sets later.
+    // Case 1 — ?set= URL auto-loader. Always highest priority.
     if (setUrl) {
       if (this.standaloneControlsMode === 'auto') {
         this.standaloneUI = this.buildStandaloneUI(false);
@@ -335,6 +332,14 @@ export class MemizySDK {
         mock.markPendingInit();
         this.standaloneUI ??= this.buildStandaloneUI(true);
         this.standaloneUI.open();
+      }
+      return mock;
+    }
+
+    // Case 2 — data already present (mockData or restored sessionStorage).
+    if (mock.hasStudySet()) {
+      if (this.standaloneControlsMode === 'auto') {
+        this.standaloneUI = this.buildStandaloneUI(false);
       }
       return mock;
     }

@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Plugin SDK · Minimal Example</title>
+    <meta
+      name="description"
+      content="Bare-bones @memizy/plugin-sdk example that relies solely on the built-in Standalone UI."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <script type="application/oqse-manifest+json">
+      {
+        "$schema": "https://cdn.jsdelivr.net/gh/memizy/oqse-specification@main/schemas/oqse-manifest-v0.1.json",
+        "version": "0.1",
+        "id": "com.memizy.playground.minimal.v3",
+        "appName": "Plugin SDK Minimal Example",
+        "description": "Bare-bones plugin that relies only on the built-in Standalone UI.",
+        "locales": ["en"],
+        "emoji": "✨",
+        "capabilities": {
+          "actions": ["render"],
+          "types": ["flashcard", "mcq-single", "mcq-multi", "true-false", "short-answer", "match-pairs", "sort-items", "note"],
+          "assets": { "image": ["*"], "audio": ["*"], "video": ["*"], "model": null },
+          "features": ["html", "markdown"]
+        }
+      }
+    </script>
+
+    <style>
+      :root {
+        --mz-orange: #ff6f00;
+        --mz-orange-d: #e65100;
+        --mz-bg: #f8f9fa;
+        --mz-card: #ffffff;
+        --mz-border: #e9ecef;
+        --mz-text: #212529;
+        --mz-text-muted: #6c757d;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+          Roboto, sans-serif;
+        font-size: 15px;
+        line-height: 1.55;
+        color: var(--mz-text);
+        background: var(--mz-bg);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 56px 24px 120px;
+      }
+
+      .page-header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 8px;
+      }
+
+      .logo {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #ff6f00 0%, #ff8f00 100%);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-size: 1.4rem;
+        box-shadow: 0 6px 16px rgba(255, 111, 0, 0.28);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      h1 span {
+        color: var(--mz-text-muted);
+        font-weight: 600;
+      }
+
+      .lead {
+        color: var(--mz-text-muted);
+        margin: 6px 0 0;
+        font-size: 15px;
+      }
+
+      .badges {
+        display: flex;
+        gap: 6px;
+        margin-top: 16px;
+      }
+
+      .badge {
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        background: #fff7ed;
+        color: #9a3412;
+      }
+
+      .card {
+        background: var(--mz-card);
+        border: 1px solid var(--mz-border);
+        border-radius: 16px;
+        padding: 22px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04);
+        margin-top: 24px;
+      }
+
+      .card h2 {
+        margin: 0 0 6px;
+        font-size: 13px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--mz-text-muted);
+      }
+
+      .card p {
+        margin: 0 0 14px;
+        font-size: 14px;
+        color: var(--mz-text-muted);
+      }
+
+      .control-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      @media (max-width: 600px) {
+        .control-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .field-label {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--mz-text-muted);
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      select,
+      input[type='text'],
+      input[type='url'] {
+        width: 100%;
+        padding: 8px 10px;
+        font: inherit;
+        font-size: 14px;
+        border: 1px solid var(--mz-border);
+        border-radius: 8px;
+        background: var(--mz-card);
+        color: var(--mz-text);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .btn {
+        appearance: none;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font: inherit;
+        font-size: 13.5px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s, border-color 0.15s,
+          box-shadow 0.15s, transform 0.1s;
+      }
+
+      .btn:active:not(:disabled) {
+        transform: translateY(1px);
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, #ff6f00 0%, #ff8f00 100%);
+        color: #fff;
+        border-color: var(--mz-orange-d);
+        box-shadow: 0 3px 10px rgba(255, 111, 0, 0.25);
+      }
+      .btn-primary:hover {
+        background: linear-gradient(135deg, #e65100 0%, #ff6f00 100%);
+      }
+
+      .btn-secondary {
+        background: var(--mz-card);
+        color: var(--mz-text);
+        border-color: var(--mz-border);
+      }
+      .btn-secondary:hover {
+        background: var(--mz-bg);
+      }
+
+      #target {
+        min-height: 160px;
+        font-size: 14.5px;
+        color: var(--mz-text);
+      }
+
+      #target .empty {
+        padding: 36px 16px;
+        text-align: center;
+        color: var(--mz-text-muted);
+        font-style: italic;
+      }
+
+      .item-row {
+        padding: 10px 12px;
+        border: 1px solid var(--mz-border);
+        border-radius: 8px;
+        margin-bottom: 8px;
+        background: var(--mz-bg);
+        font-size: 14px;
+      }
+
+      .item-row strong {
+        display: block;
+        color: var(--mz-text-muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 2px;
+      }
+
+      .footer-link {
+        display: inline-block;
+        margin-top: 28px;
+        color: var(--mz-text-muted);
+        font-size: 13px;
+        text-decoration: none;
+        border-bottom: 1px dashed var(--mz-border);
+      }
+
+      .footer-link:hover {
+        color: var(--mz-orange-d);
+      }
+
+      code {
+        font-family: 'JetBrains Mono', 'SF Mono', Consolas, ui-monospace, monospace;
+        font-size: 12.5px;
+        background: var(--mz-bg);
+        padding: 1px 6px;
+        border-radius: 4px;
+        color: var(--mz-orange-d);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <div class="logo" aria-hidden="true">✨</div>
+        <div>
+          <h1>Plugin SDK · <span>Minimal Example</span></h1>
+          <p class="lead">
+            Zero custom UI — everything is driven by the built-in Standalone UI.
+            On first load, no <code>mockData</code> is supplied, so the modal
+            opens automatically and waits for a study set.
+          </p>
+          <div class="badges">
+            <span class="badge">v0.3.0</span>
+            <span class="badge">Minimal</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>Standalone UI Controls</h2>
+        <p>
+          Tweak the settings below and click <strong>Apply &amp; Reload</strong> —
+          the page reloads with the chosen URL parameters so you can see each
+          option live.
+        </p>
+
+        <div class="control-grid">
+          <div>
+            <label class="field-label" for="ui-mode">
+              <code>standaloneControlsMode</code>
+            </label>
+            <select id="ui-mode">
+              <option value="auto">auto (gear visible, auto-open)</option>
+              <option value="hidden">hidden (no gear, manual only)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="field-label" for="ui-pos">
+              <code>standaloneUiPosition</code>
+            </label>
+            <select id="ui-pos">
+              <option value="bottom-right">bottom-right</option>
+              <option value="bottom-left">bottom-left</option>
+              <option value="top-right">top-right</option>
+              <option value="top-left">top-left</option>
+            </select>
+          </div>
+
+          <div style="grid-column: 1 / -1">
+            <label class="field-label" for="set-url">
+              Optional <code>?set=&lt;url&gt;</code> auto-loader
+            </label>
+            <input
+              type="url"
+              id="set-url"
+              placeholder="https://cdn.jsdelivr.net/gh/memizy/set-test-suite@main/data.oqse.json"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="btn-apply">
+            Apply &amp; Reload
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-open-ui">
+            Manual Open ⚙
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-clear">
+            Clear URL params
+          </button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Current Set</h2>
+        <p>
+          Once an OQSE study set is loaded via the Standalone UI, the first few
+          items will be listed here. No custom renderer, just
+          <code>sdk.store.getItems()</code>.
+        </p>
+        <div id="target">
+          <div class="empty">Waiting for a study set…</div>
+        </div>
+      </section>
+
+      <a class="footer-link" href="./index.html">
+        ← Back to the full Playground
+      </a>
+    </main>
+
+    <script type="module" src="./src/minimal.ts"></script>
+  </body>
+</html>

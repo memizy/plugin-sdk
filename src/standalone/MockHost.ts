@@ -59,6 +59,17 @@ interface PersistedState {
  * The SDK passes this directly to the managers — they only care about
  * conforming to `HostApi`, not where it's implemented.
  */
+/** Extra knobs the SDK needs when constructing the mock. */
+export interface MockHostOptions {
+  /**
+   * Skip the `sessionStorage` restore path and force a fresh seed from
+   * `seed` (or an empty shell if no seed is provided). Used when the SDK
+   * detects `?set=<url>` — the URL parameter is the single source of
+   * truth for that page load and must override any stale state.
+   */
+  forceFresh?: boolean;
+}
+
 export class MockHost implements HostApi {
   private state: PersistedState;
   private readonly rawAssets = new Map<string, File | Blob>();
@@ -70,9 +81,13 @@ export class MockHost implements HostApi {
     resolve: () => void;
   } | null = null;
 
-  constructor(seed: StandaloneMockData = {}, debug = false) {
+  constructor(
+    seed: StandaloneMockData = {},
+    debug = false,
+    options: MockHostOptions = {},
+  ) {
     this.debug = debug;
-    this.state = this.loadOrSeed(seed);
+    this.state = this.loadOrSeed(seed, options);
   }
 
   // ── HostApi — system ────────────────────────────────────────────────────
@@ -269,7 +284,28 @@ export class MockHost implements HostApi {
 
   // ── Persistence ─────────────────────────────────────────────────────────
 
-  private loadOrSeed(seed: StandaloneMockData): PersistedState {
+  private loadOrSeed(
+    seed: StandaloneMockData,
+    options: MockHostOptions,
+  ): PersistedState {
+    // Caller asked us to bypass the persisted state — return a blank slate
+    // built from `seed`. The caller is expected to immediately overwrite
+    // this via `loadSet*` (e.g. after fetching `?set=<url>`).
+    if (options.forceFresh) {
+      const fresh: PersistedState = {
+        items: seed.items ? [...seed.items] : [],
+        meta: seed.setMeta,
+        progress: seed.progress ? { ...seed.progress } : {},
+        assets: seed.assets ? { ...seed.assets } : {},
+      };
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // Ignore storage failures (quota / privacy mode).
+      }
+      return fresh;
+    }
+
     const persisted = this.tryRestore();
     if (persisted && persisted.items.length > 0) return persisted;
 

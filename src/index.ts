@@ -32,7 +32,7 @@ export { ItemTimerManager } from './core/ItemTimerManager';
 
 // ── Standalone mock + UI (exposed for test harnesses / dev tools) ──────────
 export { MockHost } from './standalone/MockHost';
-export type { StandaloneMockData } from './standalone/MockHost';
+export type { StandaloneMockData, MockHostOptions } from './standalone/MockHost';
 export { StandaloneUI } from './standalone/StandaloneUI';
 export type {
   StandaloneUICallbacks,

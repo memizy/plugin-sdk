@@ -1385,13 +1385,19 @@ function renderAssetGallery(): void {
         : `<span class="asset-icon">${media.type === 'audio' ? '🎵' : media.type === 'video' ? '🎬' : '📄'}</span>`;
       return `
         <div class="asset-card">
-          <div class="asset-thumb">${thumb}</div>
+          <div class="asset-thumb">
+            ${thumb}
+            <button class="asset-reupload-overlay" type="button" data-reupload="${esc(key)}"
+                    aria-label="Reupload asset ${esc(key)}">
+              <span aria-hidden="true">🔄</span><span>Reupload</span>
+            </button>
+          </div>
           <div class="asset-info">
             <div class="asset-key" title="${esc(key)}">${esc(key)}</div>
             <div class="asset-actions">
               <button class="btn btn-ghost btn-sm" data-copy="${esc(key)}" type="button">📋 Copy key</button>
-              <button class="btn btn-ghost btn-sm" data-reupload="${esc(key)}" type="button">🔄 Reupload</button>
-              <button class="btn btn-ghost btn-sm" data-delete="${esc(key)}" type="button">🗑️ Delete</button>
+              <button class="btn btn-ghost btn-sm btn-icon text-danger" data-delete="${esc(key)}" type="button"
+                      aria-label="Delete asset ${esc(key)}" title="Delete">🗑️</button>
             </div>
           </div>
         </div>`;

@@ -31,6 +31,12 @@ export default defineConfig({
     outDir: resolve(here, 'dist'),
     emptyOutDir: true,
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        main:    resolve(here, 'index.html'),
+        minimal: resolve(here, 'minimal.html'),
+      },
+    },
   },
   server: {
     port: 5173,

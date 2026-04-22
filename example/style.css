@@ -974,6 +974,7 @@ label.mcq-option input[type='checkbox'] {
 }
 
 .asset-thumb {
+  position: relative;
   height: 120px;
   background: var(--mz-bg);
   display: flex;
@@ -981,6 +982,34 @@ label.mcq-option input[type='checkbox'] {
   justify-content: center;
   border-bottom: 1px solid var(--mz-border);
   overflow: hidden;
+}
+
+.asset-reupload-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+}
+
+.asset-reupload-overlay:hover,
+.asset-reupload-overlay:focus-visible,
+.asset-thumb:hover .asset-reupload-overlay,
+.asset-thumb:focus-within .asset-reupload-overlay {
+  opacity: 1;
+  outline: none;
 }
 
 .asset-thumb img {
@@ -1007,6 +1036,20 @@ label.mcq-option input[type='checkbox'] {
 .asset-actions {
   display: flex;
   gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.asset-actions .btn-icon {
+  padding: 6px 8px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.asset-actions .btn-icon.text-danger { color: var(--mz-red); }
+.asset-actions .btn-icon.text-danger:hover:not(:disabled) {
+  color: #B91C1C;
+  background: var(--mz-red-soft);
 }
 
 /* ── Text processing ──────────────────────────────────────────────────── */
@@ -1294,6 +1337,7 @@ label.mcq-option input[type='checkbox'] {
   gap: 7px;
   text-align: center;
   white-space: nowrap;
+  text-decoration: none;
   transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.1s;
 }
 
