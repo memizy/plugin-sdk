@@ -1395,7 +1395,7 @@ function renderAssetGallery(): void {
           <div class="asset-info">
             <div class="asset-key" title="${esc(key)}">${esc(key)}</div>
             <div class="asset-actions">
-              <button class="btn btn-ghost btn-sm" data-copy="${esc(key)}" type="button">📋 Copy key</button>
+              <button class="btn btn-ghost btn-sm" data-copy="${esc(key)}" type="button">📋 Copy tag</button>
               <button class="btn btn-ghost btn-sm btn-icon text-danger" data-delete="${esc(key)}" type="button"
                       aria-label="Delete asset ${esc(key)}" title="Delete">🗑️</button>
             </div>
@@ -1407,9 +1407,10 @@ function renderAssetGallery(): void {
   gallery.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const key = btn.dataset['copy']!;
-      void navigator.clipboard.writeText(key);
-      toast(`Key "${key}" copied.`, 'ok');
-      log(`Copied asset key "${key}" to clipboard.`, 'ok');
+      const tag = `<asset:${key} />`;
+      void navigator.clipboard.writeText(tag);
+      toast(`Tag "${tag}" copied.`, 'ok');
+      log(`Copied asset tag "${tag}" to clipboard.`, 'ok');
     });
   });
 
