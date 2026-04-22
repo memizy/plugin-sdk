@@ -21,6 +21,8 @@ import {
   safeValidateOQSEItem,
   safeValidateOQSEProgress,
 } from '@memizy/oqse';
+import { apply } from 'mutative';
+import type { Patches } from 'mutative';
 import type {
   AssetUploadRequest,
   ExitOptions,
@@ -113,13 +115,13 @@ export class MockHost implements HostApi {
   }
 
   async storeApplyItemPatches(patches: JsonPatches): Promise<void> {
-    this.state.items = applyPatches(this.state.items, patches) as OQSEItem[];
+    this.state.items = apply(this.state.items, patches as Patches) as OQSEItem[];
     this.persist();
   }
 
   async storeApplyMetaPatches(patches: JsonPatches): Promise<void> {
     const base = this.state.meta ?? ({} as OQSEMeta);
-    this.state.meta = applyPatches(base, patches) as OQSEMeta;
+    this.state.meta = apply(base, patches as Patches) as OQSEMeta;
     this.persist();
   }
 
@@ -335,64 +337,6 @@ function flattenZod(err: { issues: { path: (string | number)[]; message: string 
   const path = top.path.join('.') || '<root>';
   const more = issues.length > 1 ? ` (+${issues.length - 1} more)` : '';
   return `${path}: ${top.message}${more}`;
-}
-
-/**
- * Minimal JSON-patch applier compatible with mutative's default output
- * (`pathAsArray: true`). Only supports the ops mutative actually emits:
- * `add`, `remove`, `replace`.
- */
-function applyPatches<T>(base: T, patches: JsonPatches): T {
-  const next: unknown = structuredCloneSafe(base);
-  for (const patch of patches) {
-    applyPatch(next, patch.path, patch.op, patch.value);
-  }
-  return next as T;
-}
-
-function applyPatch(
-  root: unknown,
-  path: (string | number)[],
-  op: 'add' | 'remove' | 'replace',
-  value: unknown,
-): void {
-  if (path.length === 0) return;
-  const parent = navigate(root, path.slice(0, -1));
-  const key = path[path.length - 1]!;
-
-  if (Array.isArray(parent)) {
-    const index = typeof key === 'number' ? key : Number(key);
-    if (op === 'add') parent.splice(index, 0, value);
-    else if (op === 'remove') parent.splice(index, 1);
-    else parent[index] = value;
-    return;
-  }
-  if (parent && typeof parent === 'object') {
-    const record = parent as Record<string, unknown>;
-    const stringKey = String(key);
-    if (op === 'remove') delete record[stringKey];
-    else record[stringKey] = value;
-  }
-}
-
-function navigate(root: unknown, path: (string | number)[]): unknown {
-  let cursor: unknown = root;
-  for (const key of path) {
-    if (cursor == null) return cursor;
-    cursor = (cursor as Record<string | number, unknown>)[key as never];
-  }
-  return cursor;
-}
-
-function structuredCloneSafe<T>(value: T): T {
-  if (typeof structuredClone === 'function') {
-    try {
-      return structuredClone(value);
-    } catch {
-      // Fall through to JSON clone for non-cloneable structures.
-    }
-  }
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function inferMediaType(file: File | Blob): MediaObject['type'] {

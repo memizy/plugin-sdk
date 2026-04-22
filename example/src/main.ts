@@ -20,6 +20,12 @@ import {
   generateUUID,
   isFlashcard,
   isMCQSingle,
+  isMCQMulti,
+  isTrueFalse,
+  isShortAnswer,
+  isMatchPairs,
+  isSortItems,
+  isNote,
   type OQSEItem,
   type OQSEFile,
   type ProgressRecord,
@@ -27,6 +33,7 @@ import {
   type StandaloneMockData,
   type OQSEMeta,
   type MediaObject,
+  type FeatureProfile,
 } from '@memizy/plugin-sdk';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -104,9 +111,11 @@ const sdk = new MemizySDK({
 
 // ── Session state ──────────────────────────────────────────────────────────
 
-let cursor       = 0;
-let answeredCount = 0;
+let cursor          = 0;
+let answeredCount   = 0;
 let timerHandle: ReturnType<typeof setInterval> | null = null;
+/** Hints consumed via 💡 Hint before the current answer is submitted. */
+let hintsUsedThisItem = 0;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 
@@ -254,6 +263,112 @@ function wireSidebar(): void {
   });
 }
 
+// ── Rich text (follow loaded set `meta.requirements`, fallback to markdown) ─
+
+function featureProfileForRichText(): FeatureProfile {
+  return sdk.store.getMeta()?.requirements ?? { features: ['markdown'] };
+}
+
+function renderRichMarkdown(text: string): string {
+  try {
+    return sdk.text.renderHtml(text, {
+      requirements: featureProfileForRichText(),
+      sanitizer: DOMPurify.sanitize,
+    });
+  } catch {
+    return esc(text);
+  }
+}
+
+function studyExtrasHtml(): string {
+  return `
+    <div class="study-extras">
+      <div id="study-feedback" class="study-feedback hidden"></div>
+      <button type="button" id="btn-study-hint" class="btn btn-ghost btn-sm study-hint-btn hidden">💡 Hint</button>
+      <div id="study-hint-panel" class="study-hint-panel hidden"></div>
+      <div id="item-explanation" class="item-explanation hidden"></div>
+    </div>`;
+}
+
+function wireStudyHints(item: OQSEItem, scope: HTMLElement): void {
+  const btn   = scope.querySelector<HTMLButtonElement>('#btn-study-hint');
+  const panel = scope.querySelector<HTMLDivElement>('#study-hint-panel');
+  if (!btn || !panel) return;
+
+  const hints = item.hints ?? [];
+  if (hints.length === 0) {
+    btn.classList.add('hidden');
+    return;
+  }
+
+  btn.classList.remove('hidden');
+  btn.disabled = false;
+  panel.classList.add('hidden');
+  panel.innerHTML = '';
+
+  let shown = 0;
+  btn.textContent = `💡 Hint (${shown}/${hints.length})`;
+
+  btn.onclick = () => {
+    const h = hints[shown];
+    if (h === undefined) return;
+    hintsUsedThisItem += 1;
+    panel.classList.remove('hidden');
+    const chunk = document.createElement('div');
+    chunk.className = 'hint-chunk';
+    chunk.innerHTML = renderRichMarkdown(h);
+    panel.appendChild(chunk);
+    shown += 1;
+    btn.textContent =
+      shown >= hints.length ? '💡 All hints shown' : `💡 Hint (${shown}/${hints.length})`;
+    if (shown >= hints.length) btn.disabled = true;
+  };
+}
+
+function showPostAnswerPanels(
+  scope: HTMLElement,
+  item: OQSEItem,
+  opts: { incorrect?: boolean },
+): void {
+  const expl = scope.querySelector<HTMLDivElement>('#item-explanation');
+  const feed = scope.querySelector<HTMLDivElement>('#study-feedback');
+
+  if (feed && opts.incorrect && item.incorrectFeedback) {
+    feed.classList.remove('hidden');
+    feed.innerHTML = renderRichMarkdown(item.incorrectFeedback);
+  }
+
+  if (expl && item.explanation) {
+    expl.classList.remove('hidden');
+    expl.innerHTML = renderRichMarkdown(item.explanation);
+  }
+}
+
+function shuffleIndices(n: number): number[] {
+  const idx = Array.from({ length: n }, (_, i) => i);
+  for (let i = idx.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [idx[i], idx[j]] = [idx[j]!, idx[i]!];
+  }
+  return idx;
+}
+
+function checkShortAnswer(
+  item: Extract<OQSEItem, { type: 'short-answer' }>,
+  raw: string,
+): boolean {
+  let s = raw;
+  if (item.trimWhitespace !== false) s = s.trim();
+  const norm = (t: string) =>
+    item.caseSensitive === true ? t : t.toLowerCase();
+  const user = norm(s);
+  return item.answers.some((a) => {
+    let t = item.trimWhitespace !== false ? a.trim() : a;
+    t = norm(t);
+    return t === user;
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // STUDY TAB
 // ═══════════════════════════════════════════════════════════════════════════
@@ -277,17 +392,20 @@ function wireStudyTab(): void {
 
 function renderStudyItem(item: OQSEItem): void {
   stopTimer();
+  hintsUsedThisItem = 0;
   sdk.store.startItemTimer(item.id);
   startTimer(item.id);
   updateBucketDots(item.id);
 
-  if (isFlashcard(item)) {
-    renderFlashcard(item);
-  } else if (isMCQSingle(item)) {
-    renderMCQ(item);
-  } else {
-    renderGenericItem(item);
-  }
+  if (isFlashcard(item)) renderFlashcard(item);
+  else if (isMCQSingle(item)) renderMCQ(item);
+  else if (isMCQMulti(item)) renderMCQMulti(item);
+  else if (isTrueFalse(item)) renderTrueFalse(item);
+  else if (isShortAnswer(item)) renderShortAnswer(item);
+  else if (isMatchPairs(item)) renderMatchPairs(item);
+  else if (isSortItems(item)) renderSortItems(item);
+  else if (isNote(item)) renderNote(item);
+  else renderGenericItem(item);
 }
 
 function renderEmptyCard(): void {
@@ -313,9 +431,13 @@ function renderFlashcard(item: Extract<OQSEItem, { type: 'flashcard' }>): void {
       <span class="item-pos-badge">${pos}</span>
     </div>
     <div class="stage-body">
-      <div class="item-question">${esc(item.front)}</div>
-      <div class="item-answer" id="fc-answer">${esc(item.back)}</div>
+      <div class="item-question">${renderRichMarkdown(item.front)}</div>
+      <div class="item-answer" id="fc-answer">${renderRichMarkdown(item.back)}</div>
+      ${studyExtrasHtml()}
     </div>`;
+
+  const body = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  wireStudyHints(item, body);
 
   $id('bucket-label').textContent = `Bucket ${bucket} — ${bucketName(bucket)}`;
   setStudyButtonState(true, false, false, true, false);
@@ -330,14 +452,17 @@ function renderMCQ(item: Extract<OQSEItem, { type: 'mcq-single' }>): void {
   const pos      = currentPos();
   const letters  = ['A', 'B', 'C', 'D', 'E', 'F'];
 
-  const optionsHtml = item.options
-    .map(
-      (opt, i) => `
+  const order = item.shuffleOptions !== false ? shuffleIndices(item.options.length) : item.options.map((_, i) => i);
+
+  const optionsHtml = order
+    .map((i) => {
+      const opt = item.options[i]!;
+      return `
       <button class="mcq-option" data-idx="${i}" type="button">
         <span class="mcq-letter">${letters[i] ?? i + 1}</span>
-        <span>${esc(opt)}</span>
-      </button>`,
-    )
+        <span>${renderRichMarkdown(opt)}</span>
+      </button>`;
+    })
     .join('');
 
   cardArea.innerHTML = `
@@ -346,9 +471,13 @@ function renderMCQ(item: Extract<OQSEItem, { type: 'mcq-single' }>): void {
       <span class="item-pos-badge">${pos}</span>
     </div>
     <div class="stage-body">
-      <div class="item-question">${esc(item.question)}</div>
+      <div class="item-question">${renderRichMarkdown(item.question)}</div>
       <div class="mcq-options" id="mcq-options">${optionsHtml}</div>
+      ${studyExtrasHtml()}
     </div>`;
+
+  const body = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  wireStudyHints(item, body);
 
   $id('bucket-label').textContent = `Bucket ${bucket} — ${bucketName(bucket)}`;
 
@@ -357,18 +486,23 @@ function renderMCQ(item: Extract<OQSEItem, { type: 'mcq-single' }>): void {
       const idx       = Number(btn.dataset['idx']);
       const isCorrect = idx === item.correctIndex;
 
-      cardArea.querySelectorAll<HTMLButtonElement>('.mcq-option').forEach((b, i) => {
+      cardArea.querySelectorAll<HTMLButtonElement>('.mcq-option').forEach((b) => {
         b.disabled = true;
-        if (i === item.correctIndex) b.classList.add('opt-correct');
+        const origI = Number(b.dataset['idx']);
+        if (origI === item.correctIndex) b.classList.add('opt-correct');
       });
       if (!isCorrect) btn.classList.add('opt-wrong');
 
       const rec = sdk.store.answer(item.id, isCorrect, {
         confidence: isCorrect ? 3 : 1,
+        hintsUsed: hintsUsedThisItem,
       });
       answeredCount++;
       updateStudyStats(item.id);
       renderBucketBar();
+
+      showPostAnswerPanels(body, item, { incorrect: !isCorrect });
+      if (!isCorrect) appendMcqOptionNarratives(body, item, idx);
 
       log(
         `store.answer("${item.id}", ${isCorrect}) → bucket=${rec.bucket} streak=${rec.stats.streak}`,
@@ -379,12 +513,436 @@ function renderMCQ(item: Extract<OQSEItem, { type: 'mcq-single' }>): void {
         isCorrect ? 'ok' : 'err',
       );
 
-      setTimeout(moveNext, 950);
+      const delay = item.explanation || item.incorrectFeedback || item.optionExplanations ? 1600 : 950;
+      setTimeout(moveNext, delay);
     });
   });
 
   setStudyButtonState(false, false, false, true, false);
   setBucketDotActive(bucket);
+}
+
+function appendMcqOptionNarratives(
+  scope: HTMLElement,
+  item: Extract<OQSEItem, { type: 'mcq-single' }>,
+  pickedIdx: number,
+): void {
+  const expl = scope.querySelector<HTMLDivElement>('#item-explanation');
+  if (!expl || !item.optionExplanations?.length) return;
+  const parts: string[] = [];
+  const w = item.optionExplanations[pickedIdx];
+  if (w) parts.push(`<div class="opt-narr"><strong>Your choice:</strong> ${renderRichMarkdown(w)}</div>`);
+  const r = item.optionExplanations[item.correctIndex];
+  if (r) parts.push(`<div class="opt-narr"><strong>Correct option:</strong> ${renderRichMarkdown(r)}</div>`);
+  if (parts.length === 0) return;
+  expl.classList.remove('hidden');
+  const base = item.explanation ? renderRichMarkdown(item.explanation) : '';
+  expl.innerHTML = (base ? base + '<hr class="expl-hr"/>' : '') + parts.join('');
+}
+
+function renderMCQMulti(item: Extract<OQSEItem, { type: 'mcq-multi' }>): void {
+  const cardArea = $id('card-area');
+  const progress = sdk.store.getProgress();
+  const bucket   = progress[item.id]?.bucket ?? 0;
+  const pos      = currentPos();
+  const letters  = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  const order    = item.shuffleOptions !== false ? shuffleIndices(item.options.length) : item.options.map((_, i) => i);
+
+  const optsHtml = order
+    .map((i) => {
+      const opt = item.options[i]!;
+      return `
+      <label class="mcq-option mcq-multi-opt" data-idx="${i}">
+        <input type="checkbox" data-idx="${i}" />
+        <span class="mcq-letter">${letters[i] ?? i + 1}</span>
+        <span>${renderRichMarkdown(opt)}</span>
+      </label>`;
+    })
+    .join('');
+
+  cardArea.innerHTML = `
+    <div class="stage-head">
+      <span class="item-type-pill pill-mcq">MCQ Multi</span>
+      <span class="item-pos-badge">${pos}</span>
+    </div>
+    <div class="stage-body">
+      <div class="item-question">${renderRichMarkdown(item.question)}</div>
+      <div class="mcq-options" id="mcq-multi-box">${optsHtml}</div>
+      <div class="mcq-multi-foot">
+        <button type="button" class="btn btn-primary" id="btn-mcq-multi-submit">Submit answers</button>
+      </div>
+      ${studyExtrasHtml()}
+    </div>`;
+
+  const body = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  wireStudyHints(item, body);
+
+  $id('bucket-label').textContent = `Bucket ${bucket} — ${bucketName(bucket)}`;
+
+  const selected = new Set<number>();
+  const maxSel = item.maxSelections ?? item.options.length;
+  const minSel = item.minSelections ?? 1;
+
+  cardArea.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const ix = Number(cb.dataset['idx']);
+      if (cb.checked) {
+        if (selected.size >= maxSel) {
+          cb.checked = false;
+          toast(`At most ${maxSel} selection(s).`, 'err');
+          return;
+        }
+        selected.add(ix);
+      } else {
+        selected.delete(ix);
+      }
+      const lab = cb.closest('.mcq-option');
+      lab?.classList.toggle('selected', cb.checked);
+    });
+  });
+
+  $id<HTMLButtonElement>('btn-mcq-multi-submit').addEventListener('click', () => {
+    if (selected.size < minSel) {
+      toast(`Pick at least ${minSel} option(s).`, 'err');
+      return;
+    }
+    const want = new Set(item.correctIndices);
+    let ok = want.size === selected.size;
+    if (ok) {
+      for (const x of selected) {
+        if (!want.has(x)) {
+          ok = false;
+          break;
+        }
+      }
+    } else ok = false;
+
+    cardArea.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((cb) => {
+      cb.disabled = true;
+    });
+    $id<HTMLButtonElement>('btn-mcq-multi-submit').disabled = true;
+
+    cardArea.querySelectorAll<HTMLLabelElement>('.mcq-multi-opt').forEach((lab) => {
+      const ix = Number(lab.dataset['idx']);
+      if (item.correctIndices.includes(ix)) lab.classList.add('opt-correct');
+      else if (selected.has(ix)) lab.classList.add('opt-wrong');
+    });
+
+    const rec = sdk.store.answer(item.id, ok, { confidence: ok ? 3 : 1, hintsUsed: hintsUsedThisItem });
+    answeredCount++;
+    updateStudyStats(item.id);
+    renderBucketBar();
+    showPostAnswerPanels(body, item, { incorrect: !ok });
+    log(`store.answer("${item.id}", ${ok}) [mcq-multi] → bucket=${rec.bucket}`, ok ? 'ok' : 'err');
+    toast(ok ? `Correct! → Bucket ${rec.bucket}` : `Incorrect.`, ok ? 'ok' : 'err');
+    const delay = item.explanation || item.incorrectFeedback ? 1600 : 950;
+    setTimeout(moveNext, delay);
+  });
+
+  setStudyButtonState(false, false, false, true, false);
+  setBucketDotActive(bucket as Bucket);
+}
+
+function renderTrueFalse(item: Extract<OQSEItem, { type: 'true-false' }>): void {
+  const cardArea = $id('card-area');
+  const progress = sdk.store.getProgress();
+  const bucket   = progress[item.id]?.bucket ?? 0;
+  const pos      = currentPos();
+
+  cardArea.innerHTML = `
+    <div class="stage-head">
+      <span class="item-type-pill pill-mcq">True / False</span>
+      <span class="item-pos-badge">${pos}</span>
+    </div>
+    <div class="stage-body">
+      <div class="item-question">${renderRichMarkdown(item.question)}</div>
+      <div class="tf-row">
+        <button type="button" class="btn btn-secondary" id="btn-tf-true">True</button>
+        <button type="button" class="btn btn-secondary" id="btn-tf-false">False</button>
+      </div>
+      ${studyExtrasHtml()}
+    </div>`;
+
+  const body = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  wireStudyHints(item, body);
+  $id('bucket-label').textContent = `Bucket ${bucket} — ${bucketName(bucket)}`;
+
+  const submit = (picked: boolean): void => {
+    const ok = picked === item.answer;
+    const rec = sdk.store.answer(item.id, ok, { confidence: ok ? 3 : 1, hintsUsed: hintsUsedThisItem });
+    answeredCount++;
+    updateStudyStats(item.id);
+    renderBucketBar();
+    showPostAnswerPanels(body, item, { incorrect: !ok });
+    $id<HTMLButtonElement>('btn-tf-true').disabled = true;
+    $id<HTMLButtonElement>('btn-tf-false').disabled = true;
+    log(`store.answer("${item.id}", ${ok}) [t/f] → bucket=${rec.bucket}`, ok ? 'ok' : 'err');
+    toast(ok ? `Correct!` : `Incorrect.`, ok ? 'ok' : 'err');
+    const delay = item.explanation || item.incorrectFeedback ? 1600 : 900;
+    setTimeout(moveNext, delay);
+  };
+
+  $id<HTMLButtonElement>('btn-tf-true').addEventListener('click', () => submit(true));
+  $id<HTMLButtonElement>('btn-tf-false').addEventListener('click', () => submit(false));
+
+  setStudyButtonState(false, false, false, true, false);
+  setBucketDotActive(bucket as Bucket);
+}
+
+function renderShortAnswer(item: Extract<OQSEItem, { type: 'short-answer' }>): void {
+  const cardArea = $id('card-area');
+  const progress = sdk.store.getProgress();
+  const bucket   = progress[item.id]?.bucket ?? 0;
+  const pos      = currentPos();
+
+  cardArea.innerHTML = `
+    <div class="stage-head">
+      <span class="item-type-pill pill-other">Short answer</span>
+      <span class="item-pos-badge">${pos}</span>
+    </div>
+    <div class="stage-body">
+      <div class="item-question">${renderRichMarkdown(item.question)}</div>
+      <div class="short-answer-row">
+        <input type="text" class="form-input" id="short-answer-input" placeholder="Your answer…" autocomplete="off" />
+        <button type="button" class="btn btn-primary" id="btn-short-submit">Submit</button>
+      </div>
+      ${studyExtrasHtml()}
+    </div>`;
+
+  const body = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  wireStudyHints(item, body);
+  $id('bucket-label').textContent = `Bucket ${bucket} — ${bucketName(bucket)}`;
+
+  const input = $id<HTMLInputElement>('short-answer-input');
+  const go = (): void => {
+    const ok = checkShortAnswer(item, input.value);
+    const rec = sdk.store.answer(item.id, ok, { confidence: ok ? 3 : 1, hintsUsed: hintsUsedThisItem, answer: input.value });
+    answeredCount++;
+    updateStudyStats(item.id);
+    renderBucketBar();
+    showPostAnswerPanels(body, item, { incorrect: !ok });
+    $id<HTMLButtonElement>('btn-short-submit').disabled = true;
+    input.disabled = true;
+    log(`store.answer("${item.id}", ${ok}) [short] → bucket=${rec.bucket}`, ok ? 'ok' : 'err');
+    toast(ok ? `Correct!` : `Incorrect.`, ok ? 'ok' : 'err');
+    const delay = item.explanation || item.incorrectFeedback ? 1600 : 900;
+    setTimeout(moveNext, delay);
+  };
+
+  $id<HTMLButtonElement>('btn-short-submit').addEventListener('click', go);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') go();
+  });
+
+  setStudyButtonState(false, false, false, true, false);
+  setBucketDotActive(bucket as Bucket);
+}
+
+function renderMatchPairs(item: Extract<OQSEItem, { type: 'match-pairs' }>): void {
+  const cardArea = $id('card-area');
+  const progress = sdk.store.getProgress();
+  const bucket   = progress[item.id]?.bucket ?? 0;
+  const pos      = currentPos();
+
+  const rows = item.prompts
+    .map((prompt, i) => {
+      const shuf = shuffleIndices(item.matches.length);
+      const opts = shuf
+        .map((mi) => `<option value="${mi}">${esc(item.matches[mi]!)}</option>`)
+        .join('');
+      return `
+        <div class="match-row" data-prompt-i="${i}">
+          <div class="match-prompt">${renderRichMarkdown(prompt)}</div>
+          <select class="match-select" data-prompt-i="${i}" aria-label="Match for prompt ${i + 1}">
+            <option value="">— Choose —</option>
+            ${opts}
+          </select>
+        </div>`;
+    })
+    .join('');
+
+  cardArea.innerHTML = `
+    <div class="stage-head">
+      <span class="item-type-pill pill-other">Match pairs</span>
+      <span class="item-pos-badge">${pos}</span>
+    </div>
+    <div class="stage-body">
+      ${item.question ? `<div class="item-question">${renderRichMarkdown(item.question)}</div>` : ''}
+      <div class="match-grid">${rows}</div>
+      <div class="mcq-multi-foot">
+        <button type="button" class="btn btn-primary" id="btn-match-submit">Submit matches</button>
+      </div>
+      ${studyExtrasHtml()}
+    </div>`;
+
+  const body = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  wireStudyHints(item, body);
+  $id('bucket-label').textContent = `Bucket ${bucket} — ${bucketName(bucket)}`;
+
+  $id<HTMLButtonElement>('btn-match-submit').addEventListener('click', () => {
+    let ok = true;
+    item.prompts.forEach((_, i) => {
+      const sel = body.querySelector<HTMLSelectElement>(`select[data-prompt-i="${i}"]`);
+      const v   = sel?.value ?? '';
+      if (v === '' || Number(v) !== i) ok = false;
+    });
+
+    body.querySelectorAll<HTMLSelectElement>('.match-select').forEach((s) => {
+      s.disabled = true;
+    });
+    $id<HTMLButtonElement>('btn-match-submit').disabled = true;
+
+    const rec = sdk.store.answer(item.id, ok, { confidence: ok ? 3 : 1, hintsUsed: hintsUsedThisItem });
+    answeredCount++;
+    updateStudyStats(item.id);
+    renderBucketBar();
+    showPostAnswerPanels(body, item, { incorrect: !ok });
+    log(`store.answer("${item.id}", ${ok}) [match] → bucket=${rec.bucket}`, ok ? 'ok' : 'err');
+    toast(ok ? `All pairs correct!` : `Some pairs are wrong.`, ok ? 'ok' : 'err');
+    const delay = item.explanation || item.incorrectFeedback ? 1600 : 950;
+    setTimeout(moveNext, delay);
+  });
+
+  setStudyButtonState(false, false, false, true, false);
+  setBucketDotActive(bucket as Bucket);
+}
+
+function renderSortItems(item: Extract<OQSEItem, { type: 'sort-items' }>): void {
+  const cardArea = $id('card-area');
+  const progress = sdk.store.getProgress();
+  const bucket   = progress[item.id]?.bucket ?? 0;
+  const pos      = currentPos();
+
+  const labels = [...item.items];
+  for (let i = labels.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [labels[i], labels[j]] = [labels[j]!, labels[i]!];
+  }
+
+  const lis = labels
+    .map(
+      (lab) => `
+    <li data-src="${encodeURIComponent(lab)}">
+      <span class="sort-label">${renderRichMarkdown(lab)}</span>
+      <div class="sort-btns">
+        <button type="button" class="btn btn-ghost btn-sm sort-up" aria-label="Move up">↑</button>
+        <button type="button" class="btn btn-ghost btn-sm sort-down" aria-label="Move down">↓</button>
+      </div>
+    </li>`,
+    )
+    .join('');
+
+  cardArea.innerHTML = `
+    <div class="stage-head">
+      <span class="item-type-pill pill-other">Sort</span>
+      <span class="item-pos-badge">${pos}</span>
+    </div>
+    <div class="stage-body">
+      <div class="item-question">${renderRichMarkdown(item.question)}</div>
+      <p class="text-muted" style="font-size:13px;color:var(--mz-text-muted);margin:0">Use ↑ ↓ to reorder, then submit.</p>
+      <ul id="sort-ul" class="sort-list">${lis}</ul>
+      <div class="mcq-multi-foot">
+        <button type="button" class="btn btn-primary" id="btn-sort-submit">Submit order</button>
+      </div>
+      ${studyExtrasHtml()}
+    </div>`;
+
+  const body  = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  const ul    = $id<HTMLUListElement>('sort-ul');
+  wireStudyHints(item, body);
+  $id('bucket-label').textContent = `Bucket ${bucket} — ${bucketName(bucket)}`;
+
+  ul.querySelectorAll<HTMLButtonElement>('.sort-up').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const li = btn.closest('li');
+      const prev = li?.previousElementSibling;
+      if (li && prev) ul.insertBefore(li, prev);
+    });
+  });
+  ul.querySelectorAll<HTMLButtonElement>('.sort-down').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const li = btn.closest('li');
+      const next = li?.nextElementSibling;
+      if (li && next) ul.insertBefore(next, li);
+    });
+  });
+
+  $id<HTMLButtonElement>('btn-sort-submit').addEventListener('click', () => {
+    const got = [...ul.querySelectorAll<HTMLLIElement>('li')].map((li) =>
+      decodeURIComponent(li.dataset['src'] ?? ''),
+    );
+    const ok =
+      got.length === item.items.length && got.every((g, i) => g === item.items[i]);
+
+    $id<HTMLButtonElement>('btn-sort-submit').disabled = true;
+    ul.querySelectorAll('button').forEach((b) => {
+      (b as HTMLButtonElement).disabled = true;
+    });
+
+    const rec = sdk.store.answer(item.id, ok, { confidence: ok ? 3 : 1, hintsUsed: hintsUsedThisItem });
+    answeredCount++;
+    updateStudyStats(item.id);
+    renderBucketBar();
+    showPostAnswerPanels(body, item, { incorrect: !ok });
+    log(`store.answer("${item.id}", ${ok}) [sort] → bucket=${rec.bucket}`, ok ? 'ok' : 'err');
+    toast(ok ? `Correct order!` : `Order does not match.`, ok ? 'ok' : 'err');
+    const delay = item.explanation || item.incorrectFeedback ? 1600 : 950;
+    setTimeout(moveNext, delay);
+  });
+
+  setStudyButtonState(false, false, false, true, false);
+  setBucketDotActive(bucket as Bucket);
+}
+
+function renderNote(item: Extract<OQSEItem, { type: 'note' }>): void {
+  const cardArea = $id('card-area');
+  const progress = sdk.store.getProgress();
+  const bucket   = progress[item.id]?.bucket ?? 0;
+  const pos      = currentPos();
+
+  const title = item.title ? `<h3 class="note-title">${esc(item.title)}</h3>` : '';
+  const hidden = item.hiddenContent
+    ? `<div id="note-hidden-wrap" class="hidden"><div class="item-answer visible" style="margin-top:12px">${renderRichMarkdown(item.hiddenContent)}</div></div>
+       <button type="button" class="btn btn-ghost btn-sm" id="btn-note-reveal" style="margin-top:8px">Show more</button>`
+    : '';
+
+  cardArea.innerHTML = `
+    <div class="stage-head">
+      <span class="item-type-pill pill-other">Note</span>
+      <span class="item-pos-badge">${pos}</span>
+    </div>
+    <div class="stage-body">
+      ${title}
+      <div class="item-question" style="text-align:left;font-size:1.05rem">${renderRichMarkdown(item.content)}</div>
+      ${hidden}
+      ${studyExtrasHtml()}
+      <div class="note-actions">
+        <button type="button" class="btn btn-primary" id="btn-note-continue">Continue</button>
+      </div>
+    </div>`;
+
+  const body = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  wireStudyHints(item, body);
+  $id('bucket-label').textContent = `Bucket ${bucket} — ${bucketName(bucket)}`;
+
+  const revealBtn = body.querySelector<HTMLButtonElement>('#btn-note-reveal');
+  if (revealBtn) {
+    revealBtn.addEventListener('click', () => {
+      const w = $id('note-hidden-wrap');
+      w.classList.remove('hidden');
+      revealBtn.classList.add('hidden');
+    });
+  }
+
+  $id<HTMLButtonElement>('btn-note-continue').addEventListener('click', () => {
+    sdk.store.skip(item.id);
+    showPostAnswerPanels(body, item, {});
+    log(`store.skip("${item.id}") [note continue]`, 'inf');
+    moveNext();
+  });
+
+  setStudyButtonState(false, false, false, true, false);
+  setBucketDotActive(bucket as Bucket);
 }
 
 function renderGenericItem(item: OQSEItem): void {
@@ -397,10 +955,13 @@ function renderGenericItem(item: OQSEItem): void {
     </div>
     <div class="stage-body">
       <div class="item-question" style="font-size:1rem;color:var(--mz-text-muted)">
-        This playground only renders flashcard and MCQ items.<br/>
-        Item type <strong>${esc(item.type)}</strong> — ID: <code>${esc(item.id)}</code>
+        This playground does not yet render <strong>${esc(item.type)}</strong>.<br/>
+        Item ID: <code>${esc(item.id)}</code>
       </div>
+      ${studyExtrasHtml()}
     </div>`;
+  const body = cardArea.querySelector<HTMLElement>('.stage-body')!;
+  wireStudyHints(item, body);
   setStudyButtonState(false, false, false, true, true);
 }
 
@@ -409,24 +970,38 @@ function revealAnswer(): void {
   if (!answerEl) return;
   answerEl.classList.add('visible');
   setStudyButtonState(false, true, true, true, true);
+  const items = sdk.store.getItems();
+  const item  = items[cursor];
+  const body    = $id('card-area').querySelector<HTMLElement>('.stage-body');
+  if (item && isFlashcard(item) && body) {
+    showPostAnswerPanels(body, item, {});
+  }
 }
 
 function recordFlashcard(isCorrect: boolean): void {
   const items = sdk.store.getItems();
   const item  = items[cursor];
-  if (!item) return;
+  if (!item || !isFlashcard(item)) return;
 
-  const rec = sdk.store.answer(item.id, isCorrect, { confidence: isCorrect ? 4 : 1 });
+  const body = $id('card-area').querySelector<HTMLElement>('.stage-body');
+
+  const rec = sdk.store.answer(item.id, isCorrect, {
+    confidence: isCorrect ? 4 : 1,
+    hintsUsed: hintsUsedThisItem,
+  });
   answeredCount++;
   updateStudyStats(item.id);
   renderBucketBar();
+
+  if (body) showPostAnswerPanels(body, item, { incorrect: !isCorrect });
 
   log(
     `store.answer("${item.id}", ${isCorrect}) → bucket=${rec.bucket} streak=${rec.stats.streak}`,
     isCorrect ? 'ok' : 'err',
   );
   toast(isCorrect ? `Correct! → Bucket ${rec.bucket}` : `Back to bucket ${rec.bucket}`, isCorrect ? 'ok' : 'err');
-  moveNext();
+  const delay = item.explanation || item.incorrectFeedback ? 1600 : 900;
+  setTimeout(moveNext, delay);
 }
 
 function skipCurrentItem(): void {
@@ -440,6 +1015,13 @@ function skipCurrentItem(): void {
   moveNext();
 }
 
+function lastAnswerTs(itemId: string): number {
+  const raw = sdk.store.getProgress()[itemId]?.lastAnswer?.answeredAt;
+  if (!raw) return 0;
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? 0 : t;
+}
+
 function moveNext(): void {
   const items = sdk.store.getItems();
   if (items.length === 0) {
@@ -447,11 +1029,18 @@ function moveNext(): void {
     return;
   }
 
-  // Adaptive: pick the item with the lowest bucket that isn't current
   const progress = sdk.store.getProgress();
   const ranked   = items
-    .map((item, index) => ({ index, bucket: progress[item.id]?.bucket ?? 0 }))
-    .sort((a, b) => a.bucket - b.bucket);
+    .map((item, index) => ({
+      index,
+      bucket: progress[item.id]?.bucket ?? 0,
+      answeredAt: lastAnswerTs(item.id),
+    }))
+    .sort((a, b) => {
+      if (a.bucket !== b.bucket) return a.bucket - b.bucket;
+      if (a.answeredAt !== b.answeredAt) return a.answeredAt - b.answeredAt;
+      return a.index - b.index;
+    });
 
   const next = ranked.find((e) => e.index !== cursor) ?? ranked[0];
   if (next) cursor = next.index;
@@ -463,6 +1052,7 @@ function moveNext(): void {
 function restartStudy(): void {
   cursor = 0;
   answeredCount = 0;
+  hintsUsedThisItem = 0;
   const items = sdk.store.getItems();
   if (items.length > 0 && items[0]) {
     renderStudyItem(items[0]);
@@ -682,7 +1272,12 @@ async function deleteItem(id: string): Promise<void> {
 
 function getItemPrompt(item: OQSEItem): string {
   if (isFlashcard(item)) return item.front;
-  if (isMCQSingle(item)) return item.question;
+  if (isMCQSingle(item) || isMCQMulti(item)) return item.question;
+  if (isTrueFalse(item)) return item.question;
+  if (isShortAnswer(item)) return item.question;
+  if (isMatchPairs(item)) return item.question ?? item.prompts.join(' · ');
+  if (isSortItems(item)) return item.question;
+  if (isNote(item)) return item.title ?? item.content.slice(0, 80);
   return item.id;
 }
 
