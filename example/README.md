@@ -20,7 +20,7 @@ npm run example:dev
 ```
 
 Open the URL Vite prints (usually `http://localhost:5173`). The ⚙ gear
-in the bottom-right opens the Standalone Loader — load your own `.json`
+in the top-right opens the Standalone Loader — load your own `.json`
 or `.oqsep` files there.
 
 Tip: append `?set=<url>` to the page URL to auto-load a remote OQSE set.

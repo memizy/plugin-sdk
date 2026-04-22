@@ -103,7 +103,7 @@ interface MemizySDKOptions {
   debug?: boolean;                   // Default false.
   // Standalone-only (ignored in iframe mode):
   standaloneControlsMode?: 'auto' | 'hidden';
-  standaloneUiPosition?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+  standaloneUiPosition?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'; // default: 'top-right'
 }
 ```
 
@@ -191,13 +191,13 @@ no way to see those changes.
 
 ```ts
 await sdk.store.createItem({
-  id: 'item-new-42',
+  id: '019db69f-a3ad-7586-a34e-620ab2e2bf35',
   type: 'flashcard',
   front: 'Hello',
   back: 'World',
 });
 
-await sdk.store.deleteItem('item-new-42');
+await sdk.store.deleteItem('019db69f-a3ad-7586-a34e-620ab2e2bf35');
 ```
 
 #### Updating meta
@@ -429,7 +429,7 @@ Options:
 new MemizySDK({
   id, version,
   standaloneControlsMode: 'auto',        // or 'hidden'
-  standaloneUiPosition:   'bottom-right', // or any corner
+  standaloneUiPosition:   'top-right',  // default; or any other corner
 });
 
 // Later, if you went with 'hidden' or want a custom trigger:

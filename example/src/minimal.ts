@@ -49,7 +49,7 @@ const uiPos: UiPosition = (() => {
     'top-right',
     'top-left',
   ];
-  return valid.includes(raw as UiPosition) ? (raw as UiPosition) : 'bottom-right';
+  return valid.includes(raw as UiPosition) ? (raw as UiPosition) : 'top-right';
 })();
 
 // ── DOM refs ────────────────────────────────────────────────────────────────

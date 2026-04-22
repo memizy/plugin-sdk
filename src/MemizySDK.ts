@@ -64,7 +64,7 @@ export interface MemizySDKOptions extends PluginIdentity {
    */
   standaloneControlsMode?: StandaloneControlsMode;
   /**
-   * Corner where the floating gear anchors. Defaults to `'bottom-right'`.
+   * Corner where the floating gear anchors. Defaults to `'top-right'`.
    * Only applies in standalone mode with `standaloneControlsMode: 'auto'`.
    */
   standaloneUiPosition?: StandaloneUiPosition;
@@ -128,7 +128,7 @@ export class MemizySDK {
     this.handshakeTimeout = options.handshakeTimeout ?? 10_000;
     this.debug = options.debug ?? false;
     this.standaloneControlsMode = options.standaloneControlsMode ?? 'auto';
-    this.standaloneUiPosition = options.standaloneUiPosition ?? 'bottom-right';
+    this.standaloneUiPosition = options.standaloneUiPosition ?? 'top-right';
   }
 
   // ── Namespaced API (post-connect) ───────────────────────────────────────

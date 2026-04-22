@@ -62,6 +62,8 @@ export const STANDALONE_UI_CSS = /* css */ `
   outline: 3px solid rgba(30, 136, 229, 0.35);
   outline-offset: 2px;
 }
+/* Fallback when [data-pos] is absent (SDK sets it; default matches top-right). */
+.mz-gear:not([data-pos]) { top: 20px; right: 20px; }
 .mz-gear[data-pos="bottom-right"] { bottom: 20px; right: 20px; }
 .mz-gear[data-pos="bottom-left"]  { bottom: 20px; left:  20px; }
 .mz-gear[data-pos="top-right"]    { top:    20px; right: 20px; }
