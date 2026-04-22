@@ -904,6 +904,18 @@ html, body {
 .text-danger { color: var(--mz-red) !important; }
 .text-success { color: var(--mz-green) !important; }
 
+.render-error {
+  padding: 10px 14px;
+  background: var(--mz-red-soft);
+  border: 1px solid var(--mz-red-border);
+  border-radius: var(--mz-radius-sm);
+  color: var(--mz-red);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', 'SF Mono', Consolas, ui-monospace, monospace;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
 .text-output .oqse-blank {
   display: inline-block;
   padding: 2px 10px;
@@ -1014,25 +1026,87 @@ html, body {
   border: 1.5px dashed var(--mz-border-strong);
 }
 
-/* ── Console panel ────────────────────────────────────────────────────── */
+/* ── Console wrapper + collapsible ────────────────────────────────────── */
+
+.console-wrapper {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0F172A;
+  border-top: 1px solid #1E293B;
+  transition: height 0.22s ease;
+}
+
+.console-header {
+  height: 40px;
+  min-height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid #1E293B;
+  user-select: none;
+}
+
+.console-title {
+  font-family: 'JetBrains Mono', 'SF Mono', Consolas, ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475569;
+}
+
+.console-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-console-toggle,
+.btn-console-clear {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #475569;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+.btn-console-toggle:hover,
+.btn-console-clear:hover { color: #94A3B8; background: rgba(255,255,255,0.05); }
 
 .console-panel {
-  height: 160px;
+  height: 210px; /* 250px total − 40px header */
   flex-shrink: 0;
   background: #0F172A;
   color: #CBD5E1;
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, ui-monospace, monospace;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.65;
   padding: 10px 16px;
   overflow-y: auto;
-  border-top: 1px solid #1E293B;
+  transition: height 0.22s ease;
 }
 
-.log-ts  { color: #475569; margin-right: 6px; }
-.log-ok  { color: #4ADE80; }
-.log-err { color: #F87171; }
-.log-inf { color: #60A5FA; }
+/* Collapsed state: hide the body, keep just the header */
+.console-wrapper.collapsed .console-panel {
+  height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.log-ts   { color: #475569; margin-right: 6px; }
+.log-ok   { color: #4ADE80; }
+.log-err  { color: #F87171; }
+.log-inf  { color: #60A5FA; }
 .log-warn { color: #FBBF24; }
 
 /* ── Buttons ──────────────────────────────────────────────────────────── */
@@ -1142,9 +1216,11 @@ html, body {
 
 .toast {
   position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 20px;
+  right: 20px;
+  bottom: auto;
+  left: auto;
+  transform: none;
   background: #111827;
   color: #F9FAFB;
   padding: 10px 18px;
@@ -1153,14 +1229,65 @@ html, body {
   font-weight: 500;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28);
   z-index: 9999;
-  animation: toast-pop 0.2s ease-out;
-  max-width: 400px;
-  text-align: center;
+  animation: toast-slide-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 360px;
+  text-align: left;
+  line-height: 1.4;
 }
 
-@keyframes toast-pop {
-  from { opacity: 0; transform: translate(-50%, 8px); }
-  to   { opacity: 1; transform: translateX(-50%); }
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Text processing: 3-output grid layout ────────────────────────────── */
+
+/* Override the 2-col grid: input + tokenizer span full width,
+   the three output cards fill 3 equal columns on wide screens. */
+
+@media (min-width: 900px) {
+  .panel-grid-text {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  /* Input card: always full width */
+  .panel-grid-text .text-input-card {
+    grid-column: 1 / -1;
+  }
+
+  /* Tokenizer card: also full width */
+  .panel-grid-text .text-token-card {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Tier badges inside card labels */
+.card-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.tier1        { background: #E0F2FE; color: #0369A1; }
+.tier2-unsafe { background: #FEE2E2; color: #B91C1C; }
+.tier2-safe   { background: #DCFCE7; color: #166534; }
+
+/* Tier 1 card */
+.card-tier1 {
+  border-color: #BAE6FD;
+  background: #F0F9FF;
 }
 
 /* ── Scrollbars ───────────────────────────────────────────────────────── */

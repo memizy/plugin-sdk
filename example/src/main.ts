@@ -144,6 +144,7 @@ async function boot(): Promise<void> {
 
   // Wire all interactive elements
   wireSidebar();
+  wireConsole();
   wireStudyTab();
   wireEditTab();
   wireAssetsTab();
@@ -213,6 +214,25 @@ function activateTab(name: string): void {
   if (name === 'progress') renderProgressTable();
   if (name === 'edit')     renderItemList();
   if (name === 'assets')   renderAssetGallery();
+}
+
+// ── Console wiring ─────────────────────────────────────────────────────────
+
+function wireConsole(): void {
+  const wrapper   = $id('console-wrapper');
+  const toggleBtn = $id('console-toggle');
+  const clearBtn  = $id('console-clear');
+
+  toggleBtn.addEventListener('click', () => {
+    const collapsed = wrapper.classList.toggle('collapsed');
+    toggleBtn.textContent = collapsed ? '▲' : '▼';
+    toggleBtn.setAttribute('aria-label', collapsed ? 'Expand console' : 'Collapse console');
+  });
+
+  clearBtn.addEventListener('click', () => {
+    consoleEl.innerHTML = '';
+    log('Console cleared.', 'inf');
+  });
 }
 
 // ── Sidebar wiring ─────────────────────────────────────────────────────────
@@ -460,10 +480,10 @@ function currentPos(): string {
 
 const BUCKET_NAMES: Record<Bucket, string> = {
   0: 'New',
-  1: 'Learning (1d)',
-  2: 'Familiar (3d)',
-  3: 'Consolidated (7d)',
-  4: 'Mastered (30d)',
+  1: 'Learning',
+  2: 'Familiar',
+  3: 'Consolidated',
+  4: 'Mastered',
 };
 
 function bucketName(b: Bucket): string { return BUCKET_NAMES[b]; }
@@ -752,8 +772,8 @@ function renderAssetGallery(): void {
 function wireTextTab(): void {
   $id('btn-inject-xss').addEventListener('click', () => {
     $id<HTMLTextAreaElement>('text-input').value = XSS_PAYLOAD;
-    log('XSS payload injected into text input.', 'warn');
-    toast('XSS payload injected — click "Render Unsafe HTML" to see it fire.', 'inf');
+    log('XSS payload injected. Use "B · Tier 2 Unsafe" to see the alert fire.', 'warn');
+    toast('XSS payload ready — click "B · Tier 2 Unsafe" to trigger the alert.', 'inf');
   });
 
   $id('btn-use-current-item').addEventListener('click', () => {
@@ -765,8 +785,9 @@ function wireTextTab(): void {
     log(`Loaded current item text (${item.id}) into text input.`, 'inf');
   });
 
-  $id('btn-render-unsafe').addEventListener('click', renderUnsafe);
-  $id('btn-render-safe').addEventListener('click', renderSafe);
+  $id('btn-render-tier1').addEventListener('click', renderTier1);
+  $id('btn-render-tier2-unsafe').addEventListener('click', renderTier2Unsafe);
+  $id('btn-render-tier2-safe').addEventListener('click', renderTier2Safe);
   $id('btn-tokenize').addEventListener('click', renderTokenized);
 }
 
@@ -774,18 +795,65 @@ function getTextInput(): string {
   return $id<HTMLTextAreaElement>('text-input').value;
 }
 
-function renderUnsafe(): void {
-  const raw  = getTextInput();
-  const html = sdk.text.renderHtml(raw);
-  $id('output-unsafe').innerHTML = html;
-  log('text.renderHtml(raw) — UNSAFE output rendered (no sanitizer).', 'warn');
+/**
+ * Case A — Tier 1: Pure Markdown, no HTML allowed.
+ * requirements: { features: [] } causes prepareRichTextForDisplay to call
+ * validateTier1Markdown(), which throws if it finds raw HTML tags in the input.
+ */
+function renderTier1(): void {
+  const raw    = getTextInput();
+  const output = $id('output-tier1');
+  try {
+    const html = sdk.text.renderHtml(raw, { requirements: { features: [] } });
+    output.innerHTML = html;
+    log('A · Tier 1 renderHtml() succeeded — no HTML tags in input.', 'ok');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    output.innerHTML = `<div class="render-error">⛔ Validation error: ${esc(msg)}</div>`;
+    log(`A · Tier 1 renderHtml() threw: ${msg}`, 'err');
+    toast('Tier 1 validation error — raw HTML is not allowed. See log.', 'err');
+  }
 }
 
-function renderSafe(): void {
-  const raw  = getTextInput();
-  const html = sdk.text.renderHtml(raw, { sanitizer: DOMPurify.sanitize });
-  $id('output-safe').innerHTML = html;
-  log('text.renderHtml(raw, { sanitizer: DOMPurify.sanitize }) — safe output rendered.', 'ok');
+/**
+ * Case B — Tier 2: HTML allowed, NO sanitizer.
+ * requirements: { features: ['html'] } disables Tier 1 validation.
+ * Without a sanitizer the raw HTML is inserted verbatim → XSS executes.
+ */
+function renderTier2Unsafe(): void {
+  const raw    = getTextInput();
+  const output = $id('output-tier2-unsafe');
+  try {
+    const html = sdk.text.renderHtml(raw, { requirements: { features: ['html'] } });
+    output.innerHTML = html;
+    log('B · Tier 2 (unsafe) renderHtml() — raw HTML inserted, XSS may execute!', 'warn');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    output.innerHTML = `<div class="render-error">⛔ Error: ${esc(msg)}</div>`;
+    log(`B · Tier 2 (unsafe) renderHtml() threw: ${msg}`, 'err');
+  }
+}
+
+/**
+ * Case C — Tier 2: HTML allowed + DOMPurify sanitizer.
+ * Same as Case B but passes DOMPurify.sanitize, which strips event handlers
+ * and dangerous tags before DOM insertion.
+ */
+function renderTier2Safe(): void {
+  const raw    = getTextInput();
+  const output = $id('output-tier2-safe');
+  try {
+    const html = sdk.text.renderHtml(raw, {
+      requirements: { features: ['html'] },
+      sanitizer: DOMPurify.sanitize,
+    });
+    output.innerHTML = html;
+    log('C · Tier 2 (safe) renderHtml() with DOMPurify — output sanitized.', 'ok');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    output.innerHTML = `<div class="render-error">⛔ Error: ${esc(msg)}</div>`;
+    log(`C · Tier 2 (safe) renderHtml() threw: ${msg}`, 'err');
+  }
 }
 
 function renderTokenized(): void {
@@ -798,7 +866,6 @@ function renderTokenized(): void {
       if (token.type === 'blank') {
         return `<input type="text" placeholder="${esc(token.key)}" class="oqse-blank" />`;
       }
-      // asset token
       const media = token.media;
       if (!media) return `<span style="opacity:.5">[asset:${esc(token.key)}]</span>`;
       const url = esc(media.value);

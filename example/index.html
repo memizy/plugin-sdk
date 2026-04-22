@@ -99,10 +99,10 @@
                 <div class="bucket-bar-track" id="bucket-bar"></div>
                 <div class="bucket-legend">
                   <span class="chip"><span class="b-dot b0"></span>New <span id="bc0">0</span></span>
-                  <span class="chip"><span class="b-dot b1"></span>1d <span id="bc1">0</span></span>
-                  <span class="chip"><span class="b-dot b2"></span>3d <span id="bc2">0</span></span>
-                  <span class="chip"><span class="b-dot b3"></span>7d <span id="bc3">0</span></span>
-                  <span class="chip"><span class="b-dot b4"></span>30d <span id="bc4">0</span></span>
+                  <span class="chip"><span class="b-dot b1"></span>Learning <span id="bc1">0</span></span>
+                  <span class="chip"><span class="b-dot b2"></span>Familiar <span id="bc2">0</span></span>
+                  <span class="chip"><span class="b-dot b3"></span>Consolidated <span id="bc3">0</span></span>
+                  <span class="chip"><span class="b-dot b4"></span>Mastered <span id="bc4">0</span></span>
                 </div>
 
                 <div class="leitner-stats">
@@ -224,17 +224,18 @@
             <div class="panel-grid panel-grid-text">
 
               <!-- Input + controls -->
-              <div class="card">
+              <div class="card text-input-card">
                 <div class="card-section-label">🧪 OQSE Rich Text Input</div>
 
                 <div class="xss-warning">
-                  <strong>Security Demo</strong>: This tab shows why <code>sanitizer</code> is critical.
-                  The "Inject XSS" button injects a live payload — the <em>Unsafe</em> output will fire an
-                  <code>alert()</code> to demonstrate the vulnerability.
+                  <strong>Three-tier security demo.</strong> Type any text below, then try the render buttons.
+                  <strong>Case A</strong> (Tier 1, no HTML) will throw a validation error if you include raw HTML tags.
+                  <strong>Case B</strong> (Tier 2 unsafe) executes payloads — click "Inject XSS" first to see the
+                  <code>alert()</code> fire. <strong>Case C</strong> (Tier 2 + DOMPurify) sanitizes the same input safely.
                 </div>
 
                 <div class="form-group">
-                  <label class="form-label" for="text-input">Raw OQSE Text (supports <code>&lt;asset:key /&gt;</code> and <code>&lt;blank:key /&gt;</code>)</label>
+                  <label class="form-label" for="text-input">Raw OQSE text — supports <code>&lt;asset:key /&gt;</code> and <code>&lt;blank:key /&gt;</code></label>
                   <textarea id="text-input" class="form-input form-textarea" rows="4"
                     placeholder="Try: Hello **world** with a blank: &lt;blank:answer /&gt;"></textarea>
                 </div>
@@ -245,30 +246,64 @@
                 </div>
 
                 <div class="text-render-btns">
-                  <button type="button" class="btn btn-warning btn-sm" id="btn-render-unsafe">Render Unsafe HTML</button>
-                  <button type="button" class="btn btn-success btn-sm" id="btn-render-safe">Render Safe (DOMPurify)</button>
-                  <button type="button" class="btn btn-blue btn-sm" id="btn-tokenize">Tokenize</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-render-tier1">
+                    A · Tier 1 — Pure Markdown
+                  </button>
+                  <button type="button" class="btn btn-warning btn-sm" id="btn-render-tier2-unsafe">
+                    B · Tier 2 — HTML Unsafe ⚠
+                  </button>
+                  <button type="button" class="btn btn-success btn-sm" id="btn-render-tier2-safe">
+                    C · Tier 2 — HTML + DOMPurify ✓
+                  </button>
+                  <button type="button" class="btn btn-blue btn-sm" id="btn-tokenize">
+                    Tokenize
+                  </button>
                 </div>
               </div>
 
-              <!-- Unsafe output -->
-              <div class="card card-danger">
-                <div class="card-section-label text-danger">⚠ Unsafe Output — <code>sdk.text.renderHtml(raw)</code></div>
-                <div class="text-output-note">No sanitizer — XSS payloads execute here.</div>
-                <div id="output-unsafe" class="text-output"></div>
+              <!-- Case A: Tier 1 (Pure Markdown, no HTML) -->
+              <div class="card card-tier1">
+                <div class="card-section-label">
+                  A · Pure Markdown (Tier 1)
+                  <span class="tier-badge tier1">No HTML allowed</span>
+                </div>
+                <div class="text-output-note">
+                  <code>sdk.text.renderHtml(raw, { requirements: { features: [] } })</code><br/>
+                  Throws a validation error if raw HTML tags are detected.
+                </div>
+                <div id="output-tier1" class="text-output"></div>
               </div>
 
-              <!-- Safe output -->
+              <!-- Case B: Tier 2 UNSAFE -->
+              <div class="card card-danger">
+                <div class="card-section-label text-danger">
+                  B · HTML Enabled (Tier 2) — Unsafe ⚠
+                  <span class="tier-badge tier2-unsafe">XSS risk</span>
+                </div>
+                <div class="text-output-note">
+                  <code>sdk.text.renderHtml(raw, { requirements: { features: ['html'] } })</code><br/>
+                  No sanitizer — injected scripts &amp; event handlers execute.
+                </div>
+                <div id="output-tier2-unsafe" class="text-output"></div>
+              </div>
+
+              <!-- Case C: Tier 2 SAFE -->
               <div class="card card-success">
-                <div class="card-section-label text-success">✅ Safe Output — <code>sdk.text.renderHtml(raw, { sanitizer: DOMPurify.sanitize })</code></div>
-                <div class="text-output-note">DOMPurify strips dangerous HTML before inserting into the DOM.</div>
-                <div id="output-safe" class="text-output"></div>
+                <div class="card-section-label text-success">
+                  C · HTML Enabled (Tier 2) — Safe ✅
+                  <span class="tier-badge tier2-safe">DOMPurify</span>
+                </div>
+                <div class="text-output-note">
+                  <code>sdk.text.renderHtml(raw, { requirements: { features: ['html'] }, sanitizer: DOMPurify.sanitize })</code><br/>
+                  DOMPurify strips dangerous attributes before DOM insertion.
+                </div>
+                <div id="output-tier2-safe" class="text-output"></div>
               </div>
 
               <!-- Tokenized -->
-              <div class="card">
+              <div class="card text-token-card">
                 <div class="card-section-label">🔬 Tokenized — <code>sdk.text.parseTokens(raw)</code></div>
-                <div class="text-output-note">Rendered via manual token mapping — always safe because each token is escaped individually.</div>
+                <div class="text-output-note">Each token is individually escaped — always safe regardless of tier.</div>
                 <div id="output-tokens" class="text-output"></div>
                 <pre id="output-token-json" class="token-json">[]</pre>
               </div>
@@ -312,9 +347,18 @@
 
         </main>
 
-        <!-- ── Console ──────────────────────────────────────────────── -->
-        <div class="console-panel" id="console-panel" role="log" aria-label="Activity log">
-          <span class="log-inf">▶ Memizy Plugin SDK Playground v0.3.0 — initialising…</span><br />
+        <!-- ── Collapsible Console ──────────────────────────────────── -->
+        <div class="console-wrapper" id="console-wrapper">
+          <div class="console-header">
+            <span class="console-title">Developer Console</span>
+            <div class="console-header-actions">
+              <button type="button" class="btn-console-clear" id="console-clear" title="Clear console">✕ Clear</button>
+              <button type="button" class="btn-console-toggle" id="console-toggle" aria-label="Toggle console">▼</button>
+            </div>
+          </div>
+          <div class="console-panel" id="console-panel" role="log" aria-label="Activity log">
+            <span class="log-inf">▶ Memizy Plugin SDK Playground v0.3.0 — initialising…</span><br />
+          </div>
         </div>
       </div><!-- /.main-wrapper -->
     </div><!-- /.shell -->
