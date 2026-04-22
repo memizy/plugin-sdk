@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://memizy.com/logo.svg" height="48" alt="Memizy" />
-</p>
-
 <h1 align="center">@memizy/plugin-sdk</h1>
 
 <p align="center">
@@ -12,7 +8,7 @@
 <p align="center">
   <a href="./docs/plugin-api.md"><b>Plugin API Guide</b></a> ·
   <a href="./docs/host-protocol.md">Host Protocol</a> ·
-  <a href="./example/">Live Example</a>
+  <a href="https://memizy.github.io/plugin-sdk/"><b>Live Example</b></a>
 </p>
 
 ---
