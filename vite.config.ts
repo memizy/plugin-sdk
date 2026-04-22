@@ -3,7 +3,6 @@ import { resolve } from 'path';
 
 export default defineConfig(({ command }) => {
   if (command === 'build') {
-    // Library build — generates ES + UMD bundles in dist/
     return {
       build: {
         lib: {
@@ -12,11 +11,21 @@ export default defineConfig(({ command }) => {
           fileName: 'memizy-sdk',
           formats: ['es', 'umd'],
         },
+        rollupOptions: {
+          external: ['@memizy/oqse', 'penpal', 'mutative'],
+          output: {
+            globals: {
+              '@memizy/oqse': 'MemizyOqse',
+              penpal: 'Penpal',
+              mutative: 'Mutative',
+            },
+          },
+        },
+        sourcemap: true,
       },
     };
   }
 
-  // Dev server — serves playground/ at /
   return {
     root: './playground',
     resolve: {

@@ -1,39 +1,38 @@
 /**
  * Pure Leitner spaced-repetition reducer.
- * No side-effects — takes old state and returns new state.
+ *
+ * Takes the previous `ProgressRecord` (or `undefined` for a brand-new item)
+ * and returns a fresh record. No side effects, safe to call from anywhere.
+ *
+ * Ported from v0.2.1 (`old_src/core/leitner.ts`) with no behavioural changes.
  */
 
 import type {
-  LastAnswerObject as ProgressLastAnswer,
+  LastAnswerObject,
   ProgressRecord,
-  StatsObject as ProgressStats,
+  StatsObject,
 } from '@memizy/oqse';
-import type { AnswerOptions } from '../types/messages';
+import type { AnswerOptions, Bucket } from '../rpc/types';
 
-type Bucket = ProgressRecord['bucket'];
-
-/** Days until next review for each bucket after a correct answer. */
+/** Days until the next review for each bucket after a correct answer. */
 export const LEITNER_INTERVALS_DAYS: Record<Bucket, number> = {
-  0: 0,   // "new" — set immediately for first review
+  0: 0,
   1: 1,
   2: 3,
   3: 7,
   4: 30,
 };
 
+const MS_PER_DAY = 86_400_000;
+
 /**
- * Compute a new `ProgressRecord` by applying the Leitner algorithm.
+ * Applies the Leitner algorithm.
  *
  * Rules:
- * - **Correct:** `bucket` + 1 (max 4). Streak increments.
- * - **Incorrect:** `bucket` resets to 1. Streak resets to 0.
- * - `nextReviewAt` is set to `now + LEITNER_INTERVALS_DAYS[newBucket]`.
- *
- * @param existing  The current record for the item (or `undefined` for new items).
- * @param isCorrect Whether the answer was correct.
- * @param timeSpent Time the user spent on the item (ms), already resolved by the caller.
- * @param options   Raw answer options from the plugin consumer.
- * @returns         A fresh `ProgressRecord` — does not mutate `existing`.
+ *  - **Correct** — bucket + 1 (capped at 4). A new item (bucket 0) jumps
+ *    directly to bucket 2 on its first correct answer. Streak increments.
+ *  - **Incorrect** — bucket resets to 1. Streak resets to 0.
+ *  - `nextReviewAt` is set to `now + LEITNER_INTERVALS_DAYS[newBucket]`.
  */
 export function defaultLeitnerReducer(
   existing: ProgressRecord | undefined,
@@ -47,19 +46,21 @@ export function defaultLeitnerReducer(
   };
 
   const oldBucket = base.bucket;
-  // The move of 2 from bucket 0 to 2 on a correct answer is intentional and not a bug.
-  const newBucket: Bucket = isCorrect ? (Math.min(oldBucket < 1 ? 2 : oldBucket + 1, 4) as Bucket) : 1;
+  const newBucket: Bucket = isCorrect
+    ? (Math.min(oldBucket < 1 ? 2 : oldBucket + 1, 4) as Bucket)
+    : 1;
 
-  const intervalMs = LEITNER_INTERVALS_DAYS[newBucket] * 86_400_000;
-  const nextReviewAt = new Date(Date.now() + intervalMs).toISOString();
+  const nextReviewAt = new Date(
+    Date.now() + LEITNER_INTERVALS_DAYS[newBucket] * MS_PER_DAY,
+  ).toISOString();
 
-  const newStats: ProgressStats = {
+  const stats: StatsObject = {
     attempts: base.stats.attempts + 1,
     incorrect: base.stats.incorrect + (isCorrect ? 0 : 1),
     streak: isCorrect ? base.stats.streak + 1 : 0,
   };
 
-  const lastAnswer: ProgressLastAnswer = {
+  const lastAnswer: LastAnswerObject = {
     isCorrect,
     answeredAt: new Date().toISOString(),
     timeSpent,
@@ -67,11 +68,5 @@ export function defaultLeitnerReducer(
     hintsUsed: options.hintsUsed ?? 0,
   };
 
-  return {
-    ...base,
-    bucket: newBucket,
-    nextReviewAt,
-    stats: newStats,
-    lastAnswer,
-  };
+  return { ...base, bucket: newBucket, nextReviewAt, stats, lastAnswer };
 }

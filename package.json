@@ -1,6 +1,6 @@
 {
   "name": "@memizy/plugin-sdk",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Official TypeScript SDK for building Memizy plugins.",
   "type": "module",
   "main": "./dist/memizy-sdk.umd.cjs",
@@ -42,10 +42,12 @@
   },
   "homepage": "https://github.com/memizy/plugin-sdk#readme",
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "vite": "^6.0.0"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.9"
   },
   "dependencies": {
-    "@memizy/oqse": "^0.1.4"
+    "@memizy/oqse": "^0.1.4",
+    "mutative": "^1.3.0",
+    "penpal": "^7.0.6"
   }
 }
