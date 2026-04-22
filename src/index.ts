@@ -1,5 +1,5 @@
 /**
- * @memizy/plugin-sdk  v0.3.0
+ * @memizy/plugin-sdk — v0.3.2
  *
  * Public entry point. One import gets plugin authors:
  *  - The `MemizySDK` class.

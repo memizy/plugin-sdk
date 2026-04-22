@@ -1,5 +1,5 @@
 /**
- * MemizySDK — v0.3.1
+ * MemizySDK — v0.3.2
  *
  * Entry point for Memizy plugins. Usage:
  *
