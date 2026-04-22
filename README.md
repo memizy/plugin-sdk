@@ -1,11 +1,8 @@
-<h1 align="center">✨ <code>@memizy/plugin-sdk</code></h1>
+<h1 align="center">✨ @memizy/plugin-sdk</h1>
 
 <p align="center">
-  <b>Official TypeScript SDK for building premium Memizy learning plugins.</b><br/>
-  RPC-first · Type-safe by default · Standalone-friendly developer UX.
+  Official TypeScript SDK for building Memizy learning plugins.<br/>
 </p>
-
-> Build sandboxed flashcards, quizzes, games, and interactive study tools that plug into the Memizy host with clean contracts and modern DX.
 
 ## 🚀 Live Interactive Playground
 
@@ -15,11 +12,13 @@
 
 Use it to explore the full SDK in action: standalone loading, set editing, asset flows, text rendering, and progress lifecycle behavior.
 
-<p align="center">
-  <a href="./docs/plugin-api.md"><b>Plugin API Guide</b></a> ·
-  <a href="./docs/host-protocol.md">Host Protocol</a> ·
-  <a href="https://memizy.github.io/plugin-sdk/"><b>Playground</b></a>
-</p>
+
+
+  <a href="./docs/plugin-api.md"><b>📖 Plugin API Guide</b></a> &nbsp; | &nbsp;
+  <a href="./docs/host-protocol.md"><b>⚙️ Host Protocol</b></a>
+
+
+Build sandboxed flashcards, quizzes, games, and interactive study tools that plug into the Memizy host with clean contracts and modern DX.
 
 ---
 
