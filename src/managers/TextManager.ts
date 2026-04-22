@@ -25,10 +25,20 @@ export interface RenderHtmlOptions {
 }
 
 export class TextManager {
-  private readonly sessionAssets: Record<string, MediaObject>;
+  private sessionAssets: Record<string, MediaObject>;
 
   constructor(sessionAssets: Record<string, MediaObject>) {
     this.sessionAssets = sessionAssets;
+  }
+
+  /**
+   * Swap the internal asset dictionary — used by the SDK when a new
+   * study set is loaded mid-session.
+   *
+   * @internal
+   */
+  _replaceAssets(assets: Record<string, MediaObject>): void {
+    this.sessionAssets = assets;
   }
 
   /**

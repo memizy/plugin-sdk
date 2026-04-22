@@ -914,9 +914,19 @@ label.mcq-option input[type='checkbox'] {
   letter-spacing: 0.04em;
 }
 
-.tag-flashcard { background: #EDE9FE; color: #5B21B6; }
-.tag-mcq       { background: #DBEAFE; color: #1E40AF; }
-.tag-other     { background: #F1F5F9; color: #475569; }
+.tag-flashcard       { background: #EDE9FE; color: #5B21B6; }
+.tag-mcq             { background: #DBEAFE; color: #1E40AF; }
+.tag-mcq-multi       { background: #E0E7FF; color: #3730A3; }
+.tag-true-false      { background: #DCFCE7; color: #166534; }
+.tag-short-answer    { background: #E0F2FE; color: #075985; }
+.tag-match-pairs     { background: #CCFBF1; color: #115E59; }
+.tag-sort-items      { background: #FEF3C7; color: #92400E; }
+.tag-note            { background: #E2E8F0; color: #334155; }
+.tag-fill-in-blanks  { background: #FCE7F3; color: #9D174D; }
+.tag-fill-in-select  { background: #FBCFE8; color: #831843; }
+.tag-categorize      { background: #FFE4E6; color: #9F1239; }
+.tag-timeline        { background: #FFEDD5; color: #9A3412; }
+.tag-other           { background: #F1F5F9; color: #475569; }
 
 .item-prompt {
   flex: 1;

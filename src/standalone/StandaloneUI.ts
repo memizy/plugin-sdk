@@ -108,7 +108,7 @@ export class StandaloneUI {
     btn.type = 'button';
     btn.className = 'mz-gear';
     btn.dataset['pos'] = position;
-    btn.setAttribute('aria-label', 'Open Memizy standalone controls');
+    btn.setAttribute('aria-label', 'Open Plugin SDK Example standalone controls');
     btn.title = 'Standalone controls';
     btn.textContent = '\u2699';
     return btn;
@@ -123,9 +123,9 @@ export class StandaloneUI {
     overlay.innerHTML = `
       <div class="mz-card">
         <div class="mz-header">
-          <div class="mz-logo" aria-hidden="true">M</div>
+          <div class="mz-logo" aria-hidden="true">🚀</div>
           <div class="mz-title">
-            <h2 id="mz-title">Memizy Standalone</h2>
+            <h2 id="mz-title">Plugin SDK Example <span>Standalone</span></h2>
             <p>Load an OQSE study set to start developing</p>
           </div>
           <button type="button" class="mz-close" data-action="close" aria-label="Close">&times;</button>

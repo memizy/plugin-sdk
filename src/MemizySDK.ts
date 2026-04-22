@@ -120,6 +120,7 @@ export class MemizySDK {
   // User-supplied lifecycle handlers.
   private configUpdateHandler: ConfigUpdateHandler | null = null;
   private sessionAbortedHandler: SessionAbortedHandler | null = null;
+  private setUpdatedHandler: (() => void) | null = null;
 
   constructor(options: MemizySDKOptions) {
     this.identity = { id: options.id, version: options.version };
@@ -166,6 +167,17 @@ export class MemizySDK {
   /** Register a callback for externally-triggered session termination. */
   onSessionAborted(handler: SessionAbortedHandler): this {
     this.sessionAbortedHandler = handler;
+    return this;
+  }
+
+  /**
+   * Register a callback invoked whenever the underlying study set is
+   * swapped mid-session — e.g. via the Standalone UI modal or the
+   * `?set=<url>` auto-loader. The SDK's managers have already been
+   * refreshed by the time this fires, so plugins can simply re-render.
+   */
+  onSetUpdated(handler: () => void): this {
+    this.setUpdatedHandler = handler;
     return this;
   }
 
@@ -340,15 +352,33 @@ export class MemizySDK {
   }
 
   private buildStandaloneUI(autoOpen: boolean): StandaloneUI {
+    const afterSet = async (): Promise<void> => {
+      // Only refresh if the plugin has already completed its first connect;
+      // during the initial bootstrap the pending-init gate handles things.
+      if (this.initPayload) await this.refreshAfterExternalSetLoad();
+    };
+
     const callbacks: StandaloneUICallbacks = {
-      loadSetFromUrl: (url) => this.loadSetFromUrl(url),
-      loadSetFromText: async (text) => this.mockHost!.loadSetFromJson(text),
-      loadSetFromFile: async (file) =>
-        this.mockHost!.loadSetFromJson(await file.text()),
-      loadProgressFromText: async (text) =>
-        this.mockHost!.loadProgressFromJson(text),
-      loadProgressFromFile: async (file) =>
-        this.mockHost!.loadProgressFromJson(await file.text()),
+      loadSetFromUrl: async (url) => {
+        await this.loadSetFromUrl(url);
+        await afterSet();
+      },
+      loadSetFromText: async (text) => {
+        this.mockHost!.loadSetFromJson(text);
+        await afterSet();
+      },
+      loadSetFromFile: async (file) => {
+        this.mockHost!.loadSetFromJson(await file.text());
+        await afterSet();
+      },
+      loadProgressFromText: async (text) => {
+        this.mockHost!.loadProgressFromJson(text);
+        await afterSet();
+      },
+      loadProgressFromFile: async (file) => {
+        this.mockHost!.loadProgressFromJson(await file.text());
+        await afterSet();
+      },
       getProgressCount: () => this.mockHost?.getProgressCount() ?? 0,
     };
 
@@ -375,6 +405,19 @@ export class MemizySDK {
     const sessionStartedAt = Date.now();
     const assets = { ...payload.assets };
 
+    // Hot-swap path: keep existing manager instances (plugins may have
+    // already captured references to them) and just rebind their state.
+    if (this._store && this._assets && this._text) {
+      this._store._updateSnapshot({
+        items: payload.items,
+        meta: payload.setMeta,
+        progress: payload.progress ?? {},
+      });
+      this._assets._replaceAll(assets);
+      this._text._replaceAssets(assets);
+      return;
+    }
+
     this._sys = new SysManager(host, sessionStartedAt);
     this._store = new StoreManager(host, {
       items: payload.items,
@@ -383,6 +426,20 @@ export class MemizySDK {
     });
     this._assets = new AssetManager(host, assets);
     this._text = new TextManager(assets);
+  }
+
+  /**
+   * Pull a fresh session payload from the (mock) host, re-bind the
+   * managers, and fire the `onSetUpdated` callback. Called whenever the
+   * Standalone UI swaps the underlying study set.
+   */
+  private async refreshAfterExternalSetLoad(): Promise<void> {
+    if (!this.hostProxy) return;
+    const payload = await this.hostProxy.sysInit(this.identity);
+    this.bootstrapManagers(payload);
+    this.initPayload = payload;
+    this.log(`set updated (standalone) — ${payload.items.length} item(s)`);
+    this.setUpdatedHandler?.();
   }
 
   private assertReady<T>(value: T | null, name: string): T {

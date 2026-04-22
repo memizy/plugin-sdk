@@ -1,4 +1,4 @@
-# Memizy Plugin Host Protocol
+# Memizy Plugin Host Protocol v0.3
 
 > Audience: developers building a **Memizy host** (e.g. the Vue Player, a CMS
 > preview, or a custom LMS integration) that embeds third-party plugins.

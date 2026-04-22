@@ -109,6 +109,25 @@ const sdk = new MemizySDK({
     toast(`Session aborted: ${reason}`, 'err');
   });
 
+function renderAll(): void {
+  cursor            = 0;
+  answeredCount     = 0;
+  hintsUsedThisItem = 0;
+
+  const items = sdk.store.getItems();
+  if (items.length > 0 && items[0]) renderStudyItem(items[0]);
+  else renderEmptyCard();
+
+  renderBucketBar();
+  renderProgressTable();
+  renderItemList();
+  renderAssetGallery();
+
+  const meta = sdk.store.getMeta();
+  $id<HTMLInputElement>('meta-title').value = meta?.title ?? '';
+  $id<HTMLInputElement>('meta-desc').value  = meta?.description ?? '';
+}
+
 // ── Session state ──────────────────────────────────────────────────────────
 
 let cursor          = 0;
@@ -128,6 +147,14 @@ async function boot(): Promise<void> {
     `Test suite fetched: ${mockData.items?.length ?? 0} item(s).`,
     mockData.items?.length ? 'ok' : 'warn',
   );
+
+  sdk.onSetUpdated(() => {
+    log('Set updated externally, re-rendering…', 'inf');
+    $id('mode-badge').textContent = sdk.isStandalone ? 'Standalone' : 'Iframe';
+    updateSidebarMeta();
+    renderAll();
+    toast('Study set swapped.', 'ok');
+  });
 
   try {
     await sdk.connect({ mockData });
@@ -1209,9 +1236,10 @@ async function addNewItem(): Promise<void> {
   };
 
   await sdk.store.createItem(newItem);
+  cursor = sdk.store.getItems().findIndex((i) => i.id === newItem.id);
   updateSidebarMeta();
   log(`store.createItem({ id: "${newItem.id}", type: "flashcard" })`, 'ok');
-  toast('Item added.', 'ok');
+  toast('Item added — switch to Study tab to test it.', 'ok');
   clearNewItemForm();
   renderItemList();
 }
@@ -1238,7 +1266,7 @@ function renderItemList(): void {
     .map((item) => {
       const bucket  = progress[item.id]?.bucket ?? 0;
       const prompt  = getItemPrompt(item);
-      const typeTag = item.type === 'flashcard' ? 'tag-flashcard' : item.type === 'mcq-single' ? 'tag-mcq' : 'tag-other';
+      const typeTag = typeTagClass(item.type);
       return `
         <div class="item-row">
           <span class="item-type-tag ${typeTag}">${esc(item.type)}</span>
@@ -1268,6 +1296,24 @@ async function deleteItem(id: string): Promise<void> {
   // Adjust cursor if needed
   const items = sdk.store.getItems();
   if (cursor >= items.length) cursor = Math.max(0, items.length - 1);
+}
+
+function typeTagClass(type: string): string {
+  switch (type) {
+    case 'flashcard':       return 'tag-flashcard';
+    case 'mcq-single':      return 'tag-mcq';
+    case 'mcq-multi':       return 'tag-mcq-multi';
+    case 'true-false':      return 'tag-true-false';
+    case 'short-answer':    return 'tag-short-answer';
+    case 'match-pairs':     return 'tag-match-pairs';
+    case 'sort-items':      return 'tag-sort-items';
+    case 'note':            return 'tag-note';
+    case 'fill-in-blanks':  return 'tag-fill-in-blanks';
+    case 'fill-in-select':  return 'tag-fill-in-select';
+    case 'categorize':      return 'tag-categorize';
+    case 'timeline':        return 'tag-timeline';
+    default:                return 'tag-other';
+  }
 }
 
 function getItemPrompt(item: OQSEItem): string {
@@ -1344,6 +1390,8 @@ function renderAssetGallery(): void {
             <div class="asset-key" title="${esc(key)}">${esc(key)}</div>
             <div class="asset-actions">
               <button class="btn btn-ghost btn-sm" data-copy="${esc(key)}" type="button">📋 Copy key</button>
+              <button class="btn btn-ghost btn-sm" data-reupload="${esc(key)}" type="button">🔄 Reupload</button>
+              <button class="btn btn-ghost btn-sm" data-delete="${esc(key)}" type="button">🗑️ Delete</button>
             </div>
           </div>
         </div>`;
@@ -1358,6 +1406,53 @@ function renderAssetGallery(): void {
       log(`Copied asset key "${key}" to clipboard.`, 'ok');
     });
   });
+
+  gallery.querySelectorAll<HTMLButtonElement>('[data-delete]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset['delete']!;
+      sdk.assets.remove(key);
+      log(`assets.remove("${key}")`, 'warn');
+      toast(`Asset "${key}" removed.`, 'inf');
+      renderAssetGallery();
+    });
+  });
+
+  gallery.querySelectorAll<HTMLButtonElement>('[data-reupload]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset['reupload']!;
+      reuploadAsset(key);
+    });
+  });
+}
+
+function reuploadAsset(existingKey: string): void {
+  const picker = document.createElement('input');
+  picker.type = 'file';
+  picker.accept = 'image/*,audio/*,video/*';
+  picker.style.display = 'none';
+  document.body.appendChild(picker);
+
+  picker.addEventListener('change', async () => {
+    const file = picker.files?.[0];
+    picker.remove();
+    if (!file) return;
+
+    log(`assets.upload("${existingKey}", ${file.name} [${file.type}]) [reupload]…`, 'inf');
+    try {
+      const media = await sdk.assets.upload(file, existingKey);
+      log(
+        `assets.upload (reupload) resolved → type=${media.type} url=${media.value.slice(0, 48)}…`,
+        'ok',
+      );
+      toast(`Asset "${existingKey}" reuploaded.`, 'ok');
+      renderAssetGallery();
+    } catch (err) {
+      log(`assets.upload (reupload) failed: ${String(err)}`, 'err');
+      toast('Reupload failed — see log.', 'err');
+    }
+  });
+
+  picker.click();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1510,7 +1605,7 @@ function renderProgressTable(): void {
       return `
         <tr>
           <td><code title="${esc(id)}">${esc(id.slice(0, 12))}…</code></td>
-          <td><span class="item-type-tag ${type === 'flashcard' ? 'tag-flashcard' : type === 'mcq-single' ? 'tag-mcq' : 'tag-other'}">${esc(type)}</span></td>
+          <td><span class="item-type-tag ${typeTagClass(type)}">${esc(type)}</span></td>
           <td><span class="bucket-badge bb${rec.bucket}">${rec.bucket}</span></td>
           <td>${rec.stats.streak}</td>
           <td>${rec.stats.attempts}</td>
@@ -1525,16 +1620,19 @@ function exportProgress(): void {
   const progress = sdk.store.getProgress();
   const meta     = sdk.store.getMeta();
   const payload  = {
-    version: '1.0',
-    setId:   meta?.id ?? 'unknown',
+    version: '0.1',
+    meta: {
+      setId:      meta?.id ?? generateUUID(),
+      exportedAt: new Date().toISOString(),
+    },
     records: progress,
   };
   const data = JSON.stringify(payload, null, 2);
   const url  = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = 'session.oqsep';
+  a.download = 'session.oqsep.json';
   a.click();
   URL.revokeObjectURL(url);
-  log(`Exported ${Object.keys(progress).length} progress records as session.oqsep.`, 'ok');
+  log(`Exported ${Object.keys(progress).length} progress records as session.oqsep.json.`, 'ok');
 }

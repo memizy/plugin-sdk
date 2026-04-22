@@ -11,6 +11,24 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800;0,14..32,900;1,14..32,400&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./style.css" />
+
+    <script type="application/oqse-manifest+json">
+      {
+        "$schema": "https://cdn.jsdelivr.net/gh/memizy/oqse-specification@main/schemas/oqse-manifest-v0.1.json",
+        "version": "0.1",
+        "id": "com.memizy.playground.v3",
+        "appName": "Plugin SDK Example Playground",
+        "description": "An interactive playground showcasing all capabilities of the Memizy Plugin SDK.",
+        "locales": ["en"],
+        "emoji": "🚀",
+        "capabilities": {
+          "actions": ["render", "edit"],
+          "types": ["flashcard", "mcq-single", "mcq-multi", "true-false", "short-answer", "match-pairs", "sort-items", "note"],
+          "assets": { "image": ["*"], "audio": ["*"], "video": ["*"], "model": null },
+          "features": ["html", "markdown"]
+        }
+      }
+    </script>
   </head>
   <body>
     <div class="shell">
@@ -321,7 +339,7 @@
                 <span class="card-section-label">📊 Progress Records — <code>sdk.store.getProgress()</code></span>
                 <div class="card-header-actions">
                   <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-progress">Refresh</button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="btn-export-progress">Export .oqsep</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-export-progress">Export .oqsep.json</button>
                 </div>
               </div>
 

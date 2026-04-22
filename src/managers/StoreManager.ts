@@ -53,6 +53,22 @@ export class StoreManager {
     };
   }
 
+  /**
+   * Hot-swap the internal snapshot — used by the SDK when a new study set
+   * is loaded mid-session (e.g. via the Standalone UI modal). Existing
+   * per-item timers are discarded so the new set starts from a clean slate.
+   *
+   * @internal — not part of the stable plugin API.
+   */
+  _updateSnapshot(initial: StoreSnapshot): void {
+    this.timers.clearAll();
+    this.snapshot = {
+      items: [...initial.items],
+      meta: initial.meta,
+      progress: { ...initial.progress },
+    };
+  }
+
   // ── Snapshot accessors ──────────────────────────────────────────────────
 
   /** A shallow copy of the current items array. */
