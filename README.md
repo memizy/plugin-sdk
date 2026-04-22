@@ -7,7 +7,7 @@
 ## 🚀 Live Interactive Playground
 
 <p>
-  <a href="https://memizy.github.io/plugin-sdk/"><b>🌍 Open the Live Interactive Playground ↗</b></a>
+  <a href="https://memizy.github.io/plugin-sdk/"><b>🌍 Open the Live Interactive Playground</b></a>
 </p>
 
 Use it to explore the full SDK in action: standalone loading, set editing, asset flows, text rendering, and progress lifecycle behavior.
