@@ -1,5 +1,5 @@
 /**
- * MemizySDK — v0.3.0
+ * MemizySDK — v0.3.1
  *
  * Entry point for Memizy plugins. Usage:
  *
@@ -427,7 +427,7 @@ export class MemizySDK {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status} — ${resp.statusText}`);
     const text = await resp.text();
-    this.mockHost.loadSetFromJson(text);
+    this.mockHost.loadSetFromJson(text, { jsonUrl: url });
   }
 
   // ── Managers ────────────────────────────────────────────────────────────

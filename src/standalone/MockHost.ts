@@ -21,6 +21,7 @@ import {
   safeValidateOQSEItem,
   safeValidateOQSEProgress,
 } from '@memizy/oqse';
+import { resolveRelativeOqseAssetUrls } from './resolveRelativeOqseAssetUrls';
 import { apply } from 'mutative';
 import type { Patches } from 'mutative';
 import type {
@@ -227,12 +228,19 @@ export class MockHost implements HostApi {
    *
    * Throws an `Error` with a human-readable message on any failure.
    */
-  loadSetFromJson(jsonText: string): void {
+  loadSetFromJson(
+    jsonText: string,
+    options?: { jsonUrl?: string },
+  ): void {
     let raw: unknown;
     try {
       raw = JSON.parse(jsonText);
     } catch (err) {
       throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    if (options?.jsonUrl) {
+      resolveRelativeOqseAssetUrls(raw, options.jsonUrl);
     }
 
     // 1. Full OQSE file?
