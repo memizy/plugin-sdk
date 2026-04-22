@@ -256,6 +256,12 @@ export class StandaloneUI {
           <div class="mz-hint">
             Tip: append <code>?set=&lt;url&gt;</code> to the page URL to auto-load a deck.
           </div>
+          <div class="mz-cta" role="note">
+            <span class="mz-cta-text">
+              Standalone mode stores <strong>one active session</strong>. To study and track multiple sets, use
+              <a href="https://learn.memizy.com" target="_blank" rel="noopener noreferrer" class="mz-cta-link">learn.memizy.com &#x2197;</a>
+            </span>
+          </div>
         </div>
       </div>
     `;

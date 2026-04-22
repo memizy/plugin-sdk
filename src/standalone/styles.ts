@@ -416,6 +416,40 @@ export const STANDALONE_UI_CSS = /* css */ `
   font-size: 11px;
 }
 
+/* ── CTA banner (learn.memizy.com) ───────────────────────────────────── */
+.mz-cta {
+  margin-top: 4px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #FFF7ED 0%, #FFF2E3 100%);
+  border: 1px solid #FFD8A8;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mz-cta-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #495057;
+}
+.mz-cta-text strong { color: #212529; font-weight: 600; }
+.mz-cta-link {
+  color: #FF6F00;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.mz-cta-link:hover {
+  color: #E65100;
+  text-decoration: underline;
+}
+.mz-cta-link:focus-visible {
+  outline: 3px solid rgba(255, 111, 0, 0.35);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* ── Progress-loaded pill ────────────────────────────────────────────── */
 .mz-ok-pill {
   display: inline-flex;
