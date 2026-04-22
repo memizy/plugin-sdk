@@ -28,6 +28,11 @@ export interface StandaloneUICallbacks {
   loadProgressFromFile(file: File): Promise<void>;
   /** Snapshot of already-loaded progress (used for the status pill). */
   getProgressCount(): number;
+  /**
+   * `true` if a study set is currently loaded — used to gate destructive
+   * "overwrite" flows behind a confirmation dialog.
+   */
+  hasStudySet(): boolean;
 }
 
 export interface StandaloneUIOptions {
@@ -45,9 +50,13 @@ export class StandaloneUI {
   private readonly hostEl: HTMLElement;
   private readonly shadow: ShadowRoot;
   private readonly overlay: HTMLElement;
+  private readonly confirmOverlay: HTMLElement;
   private readonly gear: HTMLButtonElement | null;
   private readonly callbacks: StandaloneUICallbacks;
   private readonly escListener: (e: KeyboardEvent) => void;
+
+  /** Resolver for an in-flight `confirmOverwrite()` call. */
+  private confirmResolver: ((result: boolean) => void) | null = null;
 
   constructor(options: StandaloneUIOptions) {
     this.callbacks = options.callbacks;
@@ -68,12 +77,22 @@ export class StandaloneUI {
     this.overlay.classList.toggle('mz-hidden', !options.autoOpen);
     this.shadow.appendChild(this.overlay);
 
+    this.confirmOverlay = this.buildConfirmOverlay();
+    this.confirmOverlay.classList.add('mz-hidden');
+    this.shadow.appendChild(this.confirmOverlay);
+
     document.body.appendChild(this.hostEl);
 
     this.wire();
+    this.wireConfirm();
 
     this.escListener = (e) => {
-      if (e.key === 'Escape' && !this.overlay.classList.contains('mz-hidden')) {
+      if (e.key !== 'Escape') return;
+      if (!this.confirmOverlay.classList.contains('mz-hidden')) {
+        this.resolveConfirm(false);
+        return;
+      }
+      if (!this.overlay.classList.contains('mz-hidden')) {
         this.close();
       }
     };
@@ -93,6 +112,30 @@ export class StandaloneUI {
   close(): void {
     this.overlay.classList.add('mz-hidden');
     this.clearStatus();
+  }
+
+  /**
+   * If a study set is already loaded, show a confirmation dialog before
+   * allowing a destructive overwrite. Resolves `true` if the user confirms,
+   * `false` if they cancel. Resolves immediately with `true` when there's
+   * nothing to overwrite.
+   */
+  async confirmOverwrite(): Promise<boolean> {
+    if (!this.callbacks.hasStudySet()) return true;
+    // A dialog is already open — cancel the previous invocation so we don't
+    // leave dangling resolvers.
+    if (this.confirmResolver) this.resolveConfirm(false);
+
+    return new Promise<boolean>((resolve) => {
+      this.confirmResolver = resolve;
+      this.confirmOverlay.classList.remove('mz-hidden');
+      requestAnimationFrame(() => {
+        const cancelBtn = this.shadow.querySelector<HTMLButtonElement>(
+          '[data-action="confirm-cancel"]',
+        );
+        cancelBtn?.focus({ preventScroll: true });
+      });
+    });
   }
 
   /** Completely remove the UI from the page. */
@@ -219,6 +262,38 @@ export class StandaloneUI {
     return overlay;
   }
 
+  private buildConfirmOverlay(): HTMLElement {
+    const overlay = document.createElement('div');
+    overlay.className = 'mz-confirm-overlay';
+    overlay.setAttribute('role', 'alertdialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'mz-confirm-title');
+    overlay.setAttribute('aria-describedby', 'mz-confirm-desc');
+    overlay.innerHTML = `
+      <div class="mz-confirm-card">
+        <div class="mz-confirm-body">
+          <div class="mz-confirm-icon" aria-hidden="true">\u26A0</div>
+          <div class="mz-confirm-text">
+            <h3 id="mz-confirm-title">Overwrite current set?</h3>
+            <p id="mz-confirm-desc">
+              Your current session progress and items will be lost.
+              This action cannot be undone.
+            </p>
+          </div>
+        </div>
+        <div class="mz-confirm-actions">
+          <button type="button" class="mz-btn mz-btn-secondary" data-action="confirm-cancel">
+            Cancel
+          </button>
+          <button type="button" class="mz-btn mz-btn-danger" data-action="confirm-accept">
+            Overwrite
+          </button>
+        </div>
+      </div>
+    `;
+    return overlay;
+  }
+
   // ── Wiring ──────────────────────────────────────────────────────────────
 
   private wire(): void {
@@ -255,25 +330,34 @@ export class StandaloneUI {
     // ── Study Set actions ──
     const urlInput = qs<HTMLInputElement>('[data-field="set-url"]');
     const urlBtn = qs<HTMLButtonElement>('[data-action="load-url"]');
-    const doLoadUrl = () => {
+    const doLoadUrl = async () => {
       const url = urlInput.value.trim();
       if (!url) return this.status('Please enter a URL.', 'error');
-      this.runAsync(urlBtn, 'Load', () => this.callbacks.loadSetFromUrl(url), 'Set loaded.');
+      if (!(await this.confirmOverwrite())) return;
+      void this.runAsync(
+        urlBtn,
+        'Load',
+        () => this.callbacks.loadSetFromUrl(url),
+        'Set loaded.',
+      );
     };
-    urlBtn.addEventListener('click', doLoadUrl);
+    urlBtn.addEventListener('click', () => {
+      void doLoadUrl();
+    });
     urlInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        doLoadUrl();
+        void doLoadUrl();
       }
     });
 
     const setTextArea = qs<HTMLTextAreaElement>('[data-field="set-text"]');
     const setTextBtn = qs<HTMLButtonElement>('[data-action="load-text"]');
-    setTextBtn.addEventListener('click', () => {
+    setTextBtn.addEventListener('click', async () => {
       const text = setTextArea.value.trim();
       if (!text) return this.status('Please paste OQSE JSON.', 'error');
-      this.runAsync(
+      if (!(await this.confirmOverwrite())) return;
+      void this.runAsync(
         setTextBtn,
         'Load from text',
         () => this.callbacks.loadSetFromText(text),
@@ -281,9 +365,15 @@ export class StandaloneUI {
       );
     });
 
-    this.wireDropZone('set', (file) =>
-      this.runAsync(null, null, () => this.callbacks.loadSetFromFile(file), 'Set loaded.'),
-    );
+    this.wireDropZone('set', async (file) => {
+      if (!(await this.confirmOverwrite())) return;
+      void this.runAsync(
+        null,
+        null,
+        () => this.callbacks.loadSetFromFile(file),
+        'Set loaded.',
+      );
+    });
 
     // ── Progress actions ──
     const progTextArea = qs<HTMLTextAreaElement>('[data-field="progress-text"]');
@@ -303,6 +393,27 @@ export class StandaloneUI {
       this.runAsync(null, null, () => this.callbacks.loadProgressFromFile(file), 'Progress loaded.')
         .then(() => this.refreshProgressPill()),
     );
+  }
+
+  private wireConfirm(): void {
+    const cancel = this.shadow.querySelector<HTMLButtonElement>(
+      '[data-action="confirm-cancel"]',
+    );
+    const accept = this.shadow.querySelector<HTMLButtonElement>(
+      '[data-action="confirm-accept"]',
+    );
+    cancel?.addEventListener('click', () => this.resolveConfirm(false));
+    accept?.addEventListener('click', () => this.resolveConfirm(true));
+    this.confirmOverlay.addEventListener('click', (e) => {
+      if (e.target === this.confirmOverlay) this.resolveConfirm(false);
+    });
+  }
+
+  private resolveConfirm(result: boolean): void {
+    this.confirmOverlay.classList.add('mz-hidden');
+    const resolver = this.confirmResolver;
+    this.confirmResolver = null;
+    resolver?.(result);
   }
 
   private wireDropZone(

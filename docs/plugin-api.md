@@ -24,6 +24,51 @@ by our Vite config:
 Everything you need is re-exported from `@memizy/plugin-sdk` — you rarely
 need to import from `@memizy/oqse` directly.
 
+### 1.1 The OQSEM Application Manifest (required)
+
+Every Memizy plugin **MUST** declare its capabilities via an
+[OQSEM](https://github.com/memizy/oqse-specification) manifest embedded
+as an HTML Data Island inside its `index.html`. The host uses this
+manifest to decide whether a study set is compatible with your plugin
+*before* the iframe is even mounted — so getting it right is critical.
+
+```html
+<script type="application/oqse-manifest+json">
+  {
+    "$schema": "https://cdn.jsdelivr.net/gh/memizy/oqse-specification@main/schemas/oqse-manifest-v0.1.json",
+    "version": "0.1",
+    "id": "com.example.my-flashcard-plugin",
+    "appName": "My Flashcard Plugin",
+    "description": "A minimal flashcard trainer.",
+    "locales": ["en"],
+    "emoji": "🃏",
+    "capabilities": {
+      "actions": ["render"],
+      "types": [
+        "flashcard", "mcq-single", "mcq-multi", "true-false",
+        "short-answer", "match-pairs", "sort-items", "note"
+      ],
+      "assets": { "image": ["*"], "audio": ["*"], "video": ["*"], "model": null },
+      "features": ["html", "markdown"]
+    }
+  }
+</script>
+```
+
+Key rules:
+
+- The `<script type="application/oqse-manifest+json">` MUST appear in
+  `<head>` (or very early in `<body>`) — the host reads the raw HTML
+  and will never execute JS to find it.
+- The `id` in the manifest MUST match the `id` passed to
+  `new MemizySDK({ id, version })`.
+- List only the item `types`, asset kinds, and `features` you actually
+  support. If you only render flashcards, don't claim `"mcq-single"`.
+
+Both the playground (`example/index.html`) and the bare-bones demo
+(`example/minimal.html`) ship with a complete manifest you can copy
+verbatim and adapt.
+
 ---
 
 ## 2. Construct & connect
@@ -186,10 +231,31 @@ const raw = await sdk.assets.getRaw('cover.png'); // File | Blob
 
 sdk.assets.get('cover.png');   // sync lookup of already-known asset
 sdk.assets.all();              // all session-known assets
+
+sdk.assets.remove('cover.png'); // drop a session-known asset
 ```
 
 Both `File` and `Blob` are transferred via Penpal's structured-clone
 layer — no base64, no manual chunking.
+
+#### Removing assets
+
+```ts
+sdk.assets.remove('cover.png');
+```
+
+`remove(key)` drops the asset from the plugin's in-memory session view.
+The host is **not** notified — this is a client-side cleanup helper,
+useful in cases where:
+
+- A reloaded page still remembers a `blob:` URL that points to a `Blob`
+  the browser has already released, leaving the plugin with a dead
+  asset reference.
+- You've replaced an asset via `assets.upload(file, key)` and want to
+  evict a previously cached `MediaObject` before re-rendering.
+
+For a full server-side removal, delete the asset via your host's own
+mechanism — OQSE itself does not ship with an explicit delete RPC.
 
 ### 3.4 `sdk.text` — rich text
 
@@ -251,15 +317,51 @@ sdk.onSessionAborted((reason) => {
   // 'user_exit' | 'timeout' | 'host_error'
   showGoodbyeScreen(reason);
 });
+
+sdk.onSetUpdated(() => {
+  // Study set was swapped mid-session — re-render everything from
+  // `sdk.store.getItems()` / `sdk.store.getMeta()`.
+  renderItems(sdk.store.getItems());
+});
 ```
 
-Both callbacks can be chained on construction:
+All three callbacks can be chained on construction:
 
 ```ts
 new MemizySDK({ id, version })
   .onConfigUpdate(applyConfig)
-  .onSessionAborted(handleAbort);
+  .onSessionAborted(handleAbort)
+  .onSetUpdated(rerender);
 ```
+
+### 4.1 `onSetUpdated` — hot-swapping decks in standalone mode
+
+In **standalone mode**, users (typically plugin developers) can swap
+the underlying study set at any point *after* `connect()` has resolved:
+
+- Via the Standalone UI modal (URL / paste / drag-and-drop).
+- Via a fresh `?set=<url>` reload with the overwrite-confirmation prompt.
+- Via any plugin code that calls `sdk.openStandaloneUI()`.
+
+When that happens, the SDK transparently re-runs `sysInit()` and
+rebinds the internal managers so references to `sdk.store`, `sdk.assets`,
+and `sdk.text` you've already captured stay valid — you don't need to
+re-read them. You do, however, need to re-render your UI, because the
+`items` / `meta` / `assets` have all changed.
+
+`onSetUpdated` fires *after* the managers have been refreshed, so the
+handler can simply re-read from the store:
+
+```ts
+sdk.onSetUpdated(() => {
+  const items = sdk.store.getItems();
+  const meta  = sdk.store.getMeta();
+  mount(items, meta);
+});
+```
+
+In **iframe mode** this event is a no-op — the host doesn't currently
+push mid-session set swaps.
 
 ---
 
@@ -290,17 +392,36 @@ http://localhost:5173/?set=https://example.com/deck.oqse.json
 The SDK fetches the URL, validates the response, and passes it straight
 to `sysInit()`. Useful for quickly switching decks via bookmarklets.
 
+The URL may point to a full OQSE file (`.oqse.json`), a bare
+`OQSEItem[]` array, or an envelope of the form
+`{ items, meta?, assets? }` — the mock host accepts all three shapes.
+Likewise, progress exports are expected as `.oqsep.json` (the canonical
+OQSEP extension), though the UI also accepts `.oqsep` and plain `.json`
+when dragging files in.
+
+If a session is **already loaded** when a `?set=<url>` reload happens,
+the SDK shows the overwrite-confirmation dialog described in §5.3
+before fetching — cancelling keeps the existing session intact and
+silently ignores the query parameter for that page load.
+
 ### 5.3 The built-in Standalone UI
 
 If neither `mockData` nor `?set=` is provided, the SDK shows a
 brand-aligned modal with:
 
-- **Study Set** tab — URL / textarea / drag-and-drop for `.json`.
-- **Progress** tab — textarea / drag-and-drop for `.oqsep`.
+- **Study Set** tab — URL / textarea / drag-and-drop for `.oqse.json`.
+- **Progress** tab — textarea / drag-and-drop for `.oqsep.json`
+  (the `.oqsep` extension is also accepted for backwards compatibility).
 
 `connect()` **waits** until the user submits a valid OQSE payload, then
 resolves. A floating ⚙ gear stays on-screen so you can swap decks or
 drop in saved progress mid-session.
+
+> **Heads-up:** Swapping an already-loaded set (via the UI or a fresh
+> `?set=<url>` reload) triggers a brand-aligned confirmation dialog —
+> "Overwrite current set?" — so users don't lose session progress by
+> accident. Hitting **Cancel** keeps the existing session; **Overwrite**
+> proceeds with the new deck.
 
 Options:
 
@@ -403,7 +524,21 @@ function render(item: OQSEItem) {
 
 ---
 
-## 10. Full example
+## 10. Examples
 
-See [`example/`](../example/) for a complete, styled, GitHub-Pages-ready
-plugin that demonstrates every namespace.
+The [`example/`](../example/) folder ships with two reference plugins:
+
+- [`example/index.html`](../example/index.html) — the full **Playground**:
+  a complete, styled, GitHub-Pages-ready plugin that demonstrates every
+  namespace, lifecycle callback, and rich-text renderer option.
+- [`example/minimal.html`](../example/minimal.html) — a **bare-bones**
+  integration that intentionally ships with zero custom renderer code.
+  Everything (loading a deck, swapping decks, dropping in progress)
+  runs through the built-in Standalone UI. Start here if you just want
+  to see the smallest possible plugin that still boots end-to-end — the
+  whole thing is ~200 lines of `minimal.ts` plus an HTML shell with the
+  OQSEM manifest and a control panel.
+
+Both examples include the mandatory `<script type="application/oqse-manifest+json">`
+Data Island (see §1.1), so you can copy the manifest block verbatim
+into your own plugin and adapt the `id`, `appName`, and `capabilities`.

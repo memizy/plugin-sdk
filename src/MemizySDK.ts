@@ -302,7 +302,10 @@ export class MemizySDK {
    * until the user provides a study set.
    *
    * Priority order:
-   *   1. `?set=<url>` URL parameter — ALWAYS wins, overrides everything.
+   *   1. `?set=<url>` URL parameter — when no existing session is present,
+   *      auto-loads the URL. When an existing session (mockData or
+   *      restored `sessionStorage`) is present, prompts the user via a
+   *      confirmation dialog before overwriting.
    *   2. `mockData` passed to `connect()`, or previously persisted
    *      `sessionStorage` state.
    *   3. Interactive load via the Standalone UI modal.
@@ -311,16 +314,33 @@ export class MemizySDK {
     mockData: StandaloneMockData | undefined,
   ): Promise<HostApi> {
     const setUrl = readSetUrlParam();
-    // When `?set=` is present, bypass mockData/sessionStorage entirely:
-    // the URL is the single source of truth for this page load.
-    const mock = new MockHost(mockData, this.debug, { forceFresh: setUrl !== null });
-    this.mockHost = mock;
 
-    // Case 1 — ?set= URL auto-loader. Always highest priority.
+    // Construct the mock WITHOUT `forceFresh` first so we can detect a
+    // pre-existing session (mockData or restored `sessionStorage`). If the
+    // user declines to overwrite it, we'll keep the existing state.
+    const mock = new MockHost(mockData, this.debug);
+    this.mockHost = mock;
+    const hasSeed = mock.hasStudySet();
+
+    // Case 1 — ?set= URL auto-loader.
     if (setUrl) {
-      if (this.standaloneControlsMode === 'auto') {
+      if (hasSeed) {
+        // Existing session detected — give the user a chance to bail out
+        // before we clobber their data. We build the UI eagerly (without
+        // opening the main modal) so we can pop the confirmation dialog
+        // on top.
+        this.standaloneUI = this.buildStandaloneUI(false);
+        const confirmed = await this.standaloneUI.confirmOverwrite();
+        if (!confirmed) {
+          this.log(
+            `?set=${setUrl} ignored — user kept existing session.`,
+          );
+          return mock;
+        }
+      } else if (this.standaloneControlsMode === 'auto') {
         this.standaloneUI = this.buildStandaloneUI(false);
       }
+
       try {
         await this.loadSetFromUrl(setUrl);
       } catch (err) {
@@ -328,16 +348,22 @@ export class MemizySDK {
           `[memizy-plugin-sdk/standalone] Failed to auto-load ?set=${setUrl}:`,
           err,
         );
-        // Fall through to the UI-driven path.
-        mock.markPendingInit();
-        this.standaloneUI ??= this.buildStandaloneUI(true);
-        this.standaloneUI.open();
+        if (mock.hasStudySet()) {
+          // Partial failure but we still have usable data — just surface
+          // the UI so the developer can retry.
+          this.standaloneUI ??= this.buildStandaloneUI(false);
+        } else {
+          // No data anywhere — fall through to the UI-driven path.
+          mock.markPendingInit();
+          this.standaloneUI ??= this.buildStandaloneUI(true);
+          this.standaloneUI.open();
+        }
       }
       return mock;
     }
 
     // Case 2 — data already present (mockData or restored sessionStorage).
-    if (mock.hasStudySet()) {
+    if (hasSeed) {
       if (this.standaloneControlsMode === 'auto') {
         this.standaloneUI = this.buildStandaloneUI(false);
       }
@@ -385,6 +411,7 @@ export class MemizySDK {
         await afterSet();
       },
       getProgressCount: () => this.mockHost?.getProgressCount() ?? 0,
+      hasStudySet: () => this.mockHost?.hasStudySet() ?? false,
     };
 
     return new StandaloneUI({

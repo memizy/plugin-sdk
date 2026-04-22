@@ -435,6 +435,96 @@ export const STANDALONE_UI_CSS = /* css */ `
   color: #16A34A;
 }
 
+/* ── Confirmation dialog (overwrite warning) ────────────────────────── */
+.mz-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: mz-overlay-in 0.16s ease-out;
+}
+.mz-confirm-overlay.mz-hidden { display: none; }
+
+.mz-confirm-card {
+  width: min(420px, 100%);
+  background: #FFFFFF;
+  border-radius: 16px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.08),
+    0 20px 60px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: mz-card-in 0.22s cubic-bezier(.2,.8,.2,1);
+}
+
+.mz-confirm-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 22px 22px 18px;
+}
+
+.mz-confirm-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  color: #B45309;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.18);
+}
+
+.mz-confirm-text { flex: 1; min-width: 0; }
+.mz-confirm-text h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #212529;
+  letter-spacing: -0.01em;
+}
+.mz-confirm-text p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #6C757D;
+}
+
+.mz-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px 18px;
+  background: #F8F9FA;
+  border-top: 1px solid #F1F3F5;
+}
+
+.mz-btn-danger {
+  background: linear-gradient(135deg, #DC2626 0%, #EF4444 100%);
+  color: #FFFFFF;
+  border-color: #B91C1C;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.24);
+}
+.mz-btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #B91C1C 0%, #DC2626 100%);
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.32);
+}
+.mz-btn-danger:focus-visible {
+  outline: 3px solid rgba(220, 38, 38, 0.35);
+  outline-offset: 2px;
+}
+
 /* ── Small screens ───────────────────────────────────────────────────── */
 @media (max-width: 480px) {
   .mz-overlay { padding: 0; }

@@ -60,9 +60,13 @@ const modeSelect = document.getElementById('ui-mode') as HTMLSelectElement;
 const posSelect  = document.getElementById('ui-pos')  as HTMLSelectElement;
 const urlInput   = document.getElementById('set-url') as HTMLInputElement;
 
-const btnApply   = document.getElementById('btn-apply')   as HTMLButtonElement;
-const btnOpenUI  = document.getElementById('btn-open-ui') as HTMLButtonElement;
-const btnClear   = document.getElementById('btn-clear')   as HTMLButtonElement;
+const btnApply    = document.getElementById('btn-apply')     as HTMLButtonElement;
+const btnOpenUI   = document.getElementById('btn-open-ui')   as HTMLButtonElement;
+const btnClear    = document.getElementById('btn-clear')     as HTMLButtonElement;
+const btnClearSet = document.getElementById('btn-clear-set') as HTMLButtonElement;
+
+// Must match `STORAGE_KEY` in `src/standalone/MockHost.ts`.
+const STANDALONE_STORAGE_KEY = 'memizy.plugin-sdk.standalone.v0.3';
 
 // Reflect the active config in the form
 modeSelect.value = uiMode;
@@ -100,6 +104,15 @@ btnOpenUI.addEventListener('click', () => {
 
 btnClear.addEventListener('click', () => {
   window.location.search = '';
+});
+
+btnClearSet.addEventListener('click', () => {
+  try {
+    sessionStorage.removeItem(STANDALONE_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures (quota / privacy mode).
+  }
+  window.location.reload();
 });
 
 // ── Boot ────────────────────────────────────────────────────────────────────
