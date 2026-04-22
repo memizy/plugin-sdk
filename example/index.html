@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@memizy/plugin-sdk · Flashcard Example</title>
+    <meta name="description" content="A minimal flashcard plugin showcasing the @memizy/plugin-sdk." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23FF6F00'/%3E%3Ctext x='16' y='22' font-family='Inter,sans-serif' font-size='18' font-weight='800' text-anchor='middle' fill='white'%3EM%3C/text%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-logo">M</div>
+        <div class="brand-text">
+          <div class="brand-name">Memizy</div>
+          <div class="brand-tag">Plugin SDK · Flashcard Example</div>
+        </div>
+      </div>
+      <nav class="header-links">
+        <a href="https://github.com/memizy/plugin-sdk" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://github.com/memizy/plugin-sdk/blob/main/docs/plugin-api.md" target="_blank" rel="noreferrer">Docs</a>
+        <button type="button" class="btn btn-secondary btn-sm" id="open-loader">Load your own set</button>
+      </nav>
+    </header>
+
+    <main class="app">
+      <section class="card card-stage" id="stage" aria-live="polite">
+        <div class="stage-head">
+          <div class="pill" id="item-meta">Flashcard · 1 / 3</div>
+          <div class="timer" id="timer">00:00</div>
+        </div>
+
+        <div class="stage-body">
+          <div class="prompt" id="prompt"></div>
+          <div class="reveal mz-hidden" id="reveal"></div>
+          <div class="choices mz-hidden" id="choices"></div>
+        </div>
+
+        <div class="stage-foot">
+          <button type="button" class="btn btn-ghost" id="skip-btn">Skip</button>
+          <button type="button" class="btn btn-secondary" id="flip-btn">Show answer</button>
+          <div class="answer-group mz-hidden" id="answer-group">
+            <button type="button" class="btn btn-danger" data-correct="false">I got it wrong</button>
+            <button type="button" class="btn btn-primary" data-correct="true">I got it right</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="card card-side">
+        <div class="side-head">
+          <h3>Session</h3>
+          <span class="side-sub" id="session-meta">—</span>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat">
+            <div class="stat-label">Current bucket</div>
+            <div class="stat-value" id="stat-bucket">
+              <span class="b-dot b0"></span>
+              <span>0</span>
+            </div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Streak</div>
+            <div class="stat-value" id="stat-streak">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Attempts</div>
+            <div class="stat-value" id="stat-attempts">0</div>
+          </div>
+        </div>
+
+        <div class="bucket-bar" aria-label="Bucket distribution">
+          <div class="bucket-bar-track" id="bucket-track"></div>
+          <div class="bucket-legend">
+            <span class="chip"><span class="b-dot b0"></span>New</span>
+            <span class="chip"><span class="b-dot b1"></span>1d</span>
+            <span class="chip"><span class="b-dot b2"></span>3d</span>
+            <span class="chip"><span class="b-dot b3"></span>7d</span>
+            <span class="chip"><span class="b-dot b4"></span>30d</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn btn-ghost btn-full" id="reset-btn">Reset progress</button>
+          <button type="button" class="btn btn-secondary btn-full" id="end-btn">End session</button>
+        </div>
+
+        <footer class="foot-note">
+          Running in <strong id="mode-note">…</strong>. Data is persisted to
+          <code>sessionStorage</code>.
+        </footer>
+      </aside>
+    </main>
+
+    <div class="toast mz-hidden" id="toast"></div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

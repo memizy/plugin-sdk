@@ -10,6 +10,7 @@
  * The SDK handles:
  *  - Penpal handshake with the host (iframe mode).
  *  - A drop-in mock host backed by `sessionStorage` (standalone mode).
+ *  - A brand-aligned Shadow-DOM Standalone UI (study-set / progress loader).
  *  - Lifecycle events pushed by the host (`onConfigUpdate`, `onSessionAborted`).
  */
 
@@ -29,10 +30,18 @@ import type {
   SessionAbortedReason,
 } from './rpc/types';
 import { MockHost, type StandaloneMockData } from './standalone/MockHost';
+import {
+  StandaloneUI,
+  type StandaloneUICallbacks,
+  type StandaloneUiPosition,
+} from './standalone/StandaloneUI';
 
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
+
+/** When and how to show the built-in Standalone UI in dev mode. */
+export type StandaloneControlsMode = 'auto' | 'hidden';
 
 export interface MemizySDKOptions extends PluginIdentity {
   /**
@@ -44,6 +53,21 @@ export interface MemizySDKOptions extends PluginIdentity {
   handshakeTimeout?: number;
   /** Log lifecycle events to the console. Defaults to `false`. */
   debug?: boolean;
+
+  // ── Standalone-only options ──
+  /**
+   * Controls the Standalone UI gear and auto-open behaviour.
+   *  - `'auto'`   — shows the floating gear and auto-opens the modal when
+   *                 no data is available. (default)
+   *  - `'hidden'` — never shows the gear; the plugin triggers the modal
+   *                 via `sdk.openStandaloneUI()` if needed.
+   */
+  standaloneControlsMode?: StandaloneControlsMode;
+  /**
+   * Corner where the floating gear anchors. Defaults to `'bottom-right'`.
+   * Only applies in standalone mode with `standaloneControlsMode: 'auto'`.
+   */
+  standaloneUiPosition?: StandaloneUiPosition;
 }
 
 export interface ConnectOptions {
@@ -73,6 +97,8 @@ export class MemizySDK {
   private readonly allowedOrigins: (string | RegExp)[];
   private readonly handshakeTimeout: number;
   private readonly debug: boolean;
+  private readonly standaloneControlsMode: StandaloneControlsMode;
+  private readonly standaloneUiPosition: StandaloneUiPosition;
 
   // Populated once `.connect()` resolves.
   private hostProxy: HostApi | null = null;
@@ -80,6 +106,10 @@ export class MemizySDK {
   private initPayload: InitSessionPayload | null = null;
   private sessionAborted = false;
   private mode: 'iframe' | 'standalone' | null = null;
+
+  // Standalone-only references.
+  private mockHost: MockHost | null = null;
+  private standaloneUI: StandaloneUI | null = null;
 
   // Namespaced managers. Throw clear errors if accessed pre-connect.
   private _sys: SysManager | null = null;
@@ -96,6 +126,8 @@ export class MemizySDK {
     this.allowedOrigins = options.allowedOrigins ?? ['*'];
     this.handshakeTimeout = options.handshakeTimeout ?? 10_000;
     this.debug = options.debug ?? false;
+    this.standaloneControlsMode = options.standaloneControlsMode ?? 'auto';
+    this.standaloneUiPosition = options.standaloneUiPosition ?? 'bottom-right';
   }
 
   // ── Namespaced API (post-connect) ───────────────────────────────────────
@@ -137,13 +169,31 @@ export class MemizySDK {
     return this;
   }
 
+  /**
+   * Manually open the Standalone UI modal. Useful when using
+   * `standaloneControlsMode: 'hidden'` and the plugin wants to offer its
+   * own "Load another set…" button.
+   *
+   * No-op outside standalone mode.
+   */
+  openStandaloneUI(): void {
+    if (this.mode !== 'standalone') return;
+    if (!this.standaloneUI) {
+      // Lazily create even if the mode is 'hidden' — user asked for it.
+      this.standaloneUI = this.buildStandaloneUI(false);
+    }
+    this.standaloneUI.open();
+  }
+
   // ── Connection ──────────────────────────────────────────────────────────
 
   /**
    * Establish the connection to the host and fetch the initial session.
    *
    * In iframe mode this performs the Penpal handshake with `window.parent`.
-   * In standalone mode a mock `HostApi` backed by `sessionStorage` is used.
+   * In standalone mode a mock `HostApi` backed by `sessionStorage` is used;
+   * if no data is available, the Standalone UI is shown and this method
+   * waits until the user supplies an OQSE payload before resolving.
    */
   async connect(options: ConnectOptions = {}): Promise<InitSessionPayload> {
     if (this.initPayload) return this.initPayload;
@@ -154,13 +204,17 @@ export class MemizySDK {
     if (mode === 'iframe') {
       this.hostProxy = await this.connectViaPenpal();
     } else {
-      this.hostProxy = new MockHost(options.mockData, this.debug);
+      this.hostProxy = await this.bootstrapStandalone(options.mockData);
     }
 
     const payload = await this.hostProxy.sysInit(this.identity);
     this.bootstrapManagers(payload);
     this.initPayload = payload;
     this.log(`connected (${mode}) — ${payload.items.length} item(s)`);
+
+    // Once the plugin has data, hide the modal but keep the gear in place
+    // so developers can swap decks mid-session.
+    this.standaloneUI?.close();
     return payload;
   }
 
@@ -172,6 +226,9 @@ export class MemizySDK {
     this._store?._clearAllTimers();
     this.connection?.destroy();
     this.connection = null;
+    this.standaloneUI?.destroy();
+    this.standaloneUI = null;
+    this.mockHost = null;
     this.hostProxy = null;
     this.initPayload = null;
     this._sys = null;
@@ -182,7 +239,9 @@ export class MemizySDK {
 
   // ── Internals ───────────────────────────────────────────────────────────
 
-  private resolveMode(requested: 'auto' | 'iframe' | 'standalone'): 'iframe' | 'standalone' {
+  private resolveMode(
+    requested: 'auto' | 'iframe' | 'standalone',
+  ): 'iframe' | 'standalone' {
     if (requested !== 'auto') return requested;
     try {
       return window.self === window.top ? 'standalone' : 'iframe';
@@ -222,6 +281,95 @@ export class MemizySDK {
     return this.connection.promise;
   }
 
+  // ── Standalone orchestration ────────────────────────────────────────────
+
+  /**
+   * Prepare standalone mode: construct the `MockHost`, handle the
+   * `?set=<url>` auto-loader, and — if no data is available — show the
+   * Standalone UI and arm the pending-init gate so `sysInit()` blocks
+   * until the user provides a study set.
+   */
+  private async bootstrapStandalone(
+    mockData: StandaloneMockData | undefined,
+  ): Promise<HostApi> {
+    const mock = new MockHost(mockData, this.debug);
+    this.mockHost = mock;
+
+    const setUrl = readSetUrlParam();
+    const hasSeed = mock.hasStudySet();
+
+    // Case 1 — data already present (mockData or restored sessionStorage).
+    if (hasSeed) {
+      if (this.standaloneControlsMode === 'auto') {
+        this.standaloneUI = this.buildStandaloneUI(false);
+      }
+      return mock;
+    }
+
+    // Case 2 — ?set= URL auto-loader. Still show the gear so the dev can
+    // swap sets later.
+    if (setUrl) {
+      if (this.standaloneControlsMode === 'auto') {
+        this.standaloneUI = this.buildStandaloneUI(false);
+      }
+      try {
+        await this.loadSetFromUrl(setUrl);
+      } catch (err) {
+        console.warn(
+          `[memizy-plugin-sdk/standalone] Failed to auto-load ?set=${setUrl}:`,
+          err,
+        );
+        // Fall through to the UI-driven path.
+        mock.markPendingInit();
+        this.standaloneUI ??= this.buildStandaloneUI(true);
+        this.standaloneUI.open();
+      }
+      return mock;
+    }
+
+    // Case 3 — no data anywhere: arm the gate and open the UI.
+    mock.markPendingInit();
+    this.standaloneUI = this.buildStandaloneUI(this.standaloneControlsMode === 'auto');
+    if (this.standaloneControlsMode === 'hidden') {
+      // The developer asked us to stay out of the way, but there's no
+      // other way to get data. Open the modal once — they can hide the
+      // gear afterwards.
+      this.standaloneUI.open();
+    }
+    return mock;
+  }
+
+  private buildStandaloneUI(autoOpen: boolean): StandaloneUI {
+    const callbacks: StandaloneUICallbacks = {
+      loadSetFromUrl: (url) => this.loadSetFromUrl(url),
+      loadSetFromText: async (text) => this.mockHost!.loadSetFromJson(text),
+      loadSetFromFile: async (file) =>
+        this.mockHost!.loadSetFromJson(await file.text()),
+      loadProgressFromText: async (text) =>
+        this.mockHost!.loadProgressFromJson(text),
+      loadProgressFromFile: async (file) =>
+        this.mockHost!.loadProgressFromJson(await file.text()),
+      getProgressCount: () => this.mockHost?.getProgressCount() ?? 0,
+    };
+
+    return new StandaloneUI({
+      autoOpen,
+      showGear: this.standaloneControlsMode === 'auto',
+      position: this.standaloneUiPosition,
+      callbacks,
+    });
+  }
+
+  private async loadSetFromUrl(url: string): Promise<void> {
+    if (!this.mockHost) throw new Error('Standalone mock host is not initialised.');
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} — ${resp.statusText}`);
+    const text = await resp.text();
+    this.mockHost.loadSetFromJson(text);
+  }
+
+  // ── Managers ────────────────────────────────────────────────────────────
+
   private bootstrapManagers(payload: InitSessionPayload): void {
     const host = this.hostProxy!;
     const sessionStartedAt = Date.now();
@@ -253,5 +401,17 @@ export class MemizySDK {
   /** @internal — for tests. */
   get _sessionAborted(): boolean {
     return this.sessionAborted;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function readSetUrlParam(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get('set');
+  } catch {
+    return null;
   }
 }

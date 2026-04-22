@@ -15,6 +15,7 @@ export type {
   ConnectOptions,
   ConfigUpdateHandler,
   SessionAbortedHandler,
+  StandaloneControlsMode,
 } from './MemizySDK';
 
 // ── Manager classes (exported for advanced usage / typing) ─────────────────
@@ -29,9 +30,15 @@ export type { RenderHtmlOptions } from './managers/TextManager';
 export { defaultLeitnerReducer, LEITNER_INTERVALS_DAYS } from './core/leitner';
 export { ItemTimerManager } from './core/ItemTimerManager';
 
-// ── Standalone mock (exposed for test harnesses / dev tools) ───────────────
+// ── Standalone mock + UI (exposed for test harnesses / dev tools) ──────────
 export { MockHost } from './standalone/MockHost';
 export type { StandaloneMockData } from './standalone/MockHost';
+export { StandaloneUI } from './standalone/StandaloneUI';
+export type {
+  StandaloneUICallbacks,
+  StandaloneUIOptions,
+  StandaloneUiPosition,
+} from './standalone/StandaloneUI';
 
 // ── RPC contract (for host-side type safety) ───────────────────────────────
 export type {
