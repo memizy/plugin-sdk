@@ -1,30 +1,36 @@
-<h1 align="center">@memizy/plugin-sdk</h1>
+<h1 align="center">✨ <code>@memizy/plugin-sdk</code></h1>
 
 <p align="center">
-  <b>Official TypeScript SDK for building Memizy learning plugins.</b><br/>
-  RPC-first · Strongly typed · Works standalone for development.
+  <b>Official TypeScript SDK for building premium Memizy learning plugins.</b><br/>
+  RPC-first · Type-safe by default · Standalone-friendly developer UX.
 </p>
+
+> Build sandboxed flashcards, quizzes, games, and interactive study tools that plug into the Memizy host with clean contracts and modern DX.
+
+## 🚀 Live Interactive Playground
+
+<p>
+  <a href="https://memizy.github.io/plugin-sdk/"><b>🌍 Open the Live Interactive Playground ↗</b></a>
+</p>
+
+Use it to explore the full SDK in action: standalone loading, set editing, asset flows, text rendering, and progress lifecycle behavior.
 
 <p align="center">
   <a href="./docs/plugin-api.md"><b>Plugin API Guide</b></a> ·
   <a href="./docs/host-protocol.md">Host Protocol</a> ·
-  <a href="https://memizy.github.io/plugin-sdk/"><b>Live Example</b></a>
+  <a href="https://memizy.github.io/plugin-sdk/"><b>Playground</b></a>
 </p>
 
 ---
 
-## What is this?
+## Why `@memizy/plugin-sdk`?
 
-`@memizy/plugin-sdk` lets you build **sandboxed learning apps** (flashcards,
-quizzes, games, simulators, …) that slot into the Memizy player. The SDK
-handles the boring bits:
+`@memizy/plugin-sdk` removes the infrastructure friction so you can focus on learning UX:
 
-- 🔌 **Penpal v7 RPC** with the host — no manual `postMessage` plumbing.
-- 🧬 **Mutative JSON patches** — mutate items with `recipe(draft => {…})`,
-  the SDK sends only the delta across the iframe boundary.
-- 📦 **OQSE types & Zod schemas** — all data models come from `@memizy/oqse`.
-- 🧪 **Standalone dev mode** — a `sessionStorage`-backed mock host and a
-  brand-aligned Shadow-DOM UI to load OQSE decks locally.
+- 🔌 **Penpal v7 RPC transport** — structured host communication without manual `postMessage` wiring.
+- 🧬 **Mutative JSON patches** — update items with `recipe(draft => { ... })` and send only compact deltas.
+- 📦 **OQSE + Zod contracts** — shared schemas from `@memizy/oqse` keep set/progress data strongly validated.
+- 🧪 **Standalone mode built in** — `sessionStorage`-backed MockHost + polished Shadow-DOM loader for local iteration.
 
 ---
 
