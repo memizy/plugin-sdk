@@ -1,5 +1,5 @@
 /**
- * Memizy Plugin SDK v0.3.0 — Playground
+ * Memizy Plugin SDK v0.3.4 — Playground
  *
  * Comprehensive demo covering every public API surface:
  *   sdk.connect()          – connect with remote OQSE test-suite as mockData
@@ -99,7 +99,7 @@ function toast(msg: string, kind: 'ok' | 'err' | 'inf' = 'inf'): void {
 
 const sdk = new MemizySDK({
   id: 'com.memizy.playground.v3',
-  version: '0.3.0',
+  version: '0.3.4',
   debug: true,
   standaloneControlsMode: 'hidden', // we provide mockData + our own button
 })

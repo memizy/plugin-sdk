@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Plugin SDK · Minimal Example</title>
+    <title>Plugin SDK v0.3.4 · Minimal Example</title>
     <meta
       name="description"
-      content="Bare-bones @memizy/plugin-sdk example that relies solely on the built-in Standalone UI."
+      content="Bare-bones @memizy/plugin-sdk v0.3.4 example that relies solely on the built-in Standalone UI."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link
@@ -28,6 +28,11 @@
           "types": ["flashcard", "mcq-single", "mcq-multi", "true-false", "short-answer", "match-pairs", "sort-items", "note"],
           "assets": { "image": ["*"], "audio": ["*"], "video": ["*"], "model": null },
           "features": ["html", "markdown"]
+        },
+        "appSpecific": {
+          "memizy": {
+            "minimumHostApiVersion": "0.3"
+          }
         }
       }
     </script>
@@ -321,14 +326,14 @@
       <header class="page-header">
         <div class="logo" aria-hidden="true">✨</div>
         <div>
-          <h1>Plugin SDK · <span>Minimal Example</span></h1>
+          <h1>Plugin SDK v0.3.4 · <span>Minimal Example</span></h1>
           <p class="lead">
             Zero custom UI — everything is driven by the built-in Standalone UI.
             On first load, no <code>mockData</code> is supplied, so the modal
             opens automatically and waits for a study set.
           </p>
           <div class="badges">
-            <span class="badge">v0.3.0</span>
+            <span class="badge">v0.3.4</span>
             <span class="badge">Minimal</span>
           </div>
         </div>

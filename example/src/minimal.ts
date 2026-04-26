@@ -1,5 +1,5 @@
 /**
- * Memizy Plugin SDK v0.3.0 — Minimal Example
+ * Memizy Plugin SDK v0.3.4 — Minimal Example
  *
  * A bare-bones plugin that relies entirely on the built-in Standalone UI:
  *   - No `mockData` is passed to `sdk.connect()`, so the modal opens
@@ -77,7 +77,7 @@ urlInput.value   = params.get('set') ?? '';
 
 const sdk = new MemizySDK({
   id: 'com.memizy.playground.minimal.v3',
-  version: '0.3.0',
+  version: '0.3.4',
   debug: true,
   standaloneControlsMode: uiMode,
   standaloneUiPosition:   uiPos,

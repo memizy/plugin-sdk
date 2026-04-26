@@ -50,6 +50,11 @@ manifest to decide whether a study set is compatible with your plugin
       ],
       "assets": { "image": ["*"], "audio": ["*"], "video": ["*"], "model": null },
       "features": ["html", "markdown"]
+    },
+    "appSpecific": {
+      "memizy": {
+        "minimumHostApiVersion": "0.3"
+      }
     }
   }
 </script>
@@ -64,6 +69,8 @@ Key rules:
   `new MemizySDK({ id, version })`.
 - List only the item `types`, asset kinds, and `features` you actually
   support. If you only render flashcards, don't claim `"mcq-single"`.
+- `appSpecific.memizy.minimumHostApiVersion` guarantees the host can detect
+  required API compatibility (and prompt for updates) before loading the plugin.
 
 Both the playground (`example/index.html`) and the bare-bones demo
 (`example/minimal.html`) ship with a complete manifest you can copy

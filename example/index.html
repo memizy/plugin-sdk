@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Plugin SDK Example · v0.3.0 Playground</title>
-    <meta name="description" content="Interactive playground showcasing all @memizy/plugin-sdk v0.3.0 capabilities." />
+    <title>Plugin SDK Example · v0.3.4 Playground</title>
+    <meta name="description" content="Interactive playground showcasing all @memizy/plugin-sdk v0.3.4 capabilities." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" href="/favicon.png" sizes="32x32" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -26,6 +26,11 @@
           "types": ["flashcard", "mcq-single", "mcq-multi", "true-false", "short-answer", "match-pairs", "sort-items", "note"],
           "assets": { "image": ["*"], "audio": ["*"], "video": ["*"], "model": null },
           "features": ["html", "markdown"]
+        },
+        "appSpecific": {
+          "memizy": {
+            "minimumHostApiVersion": "0.3"
+          }
         }
       }
     </script>
@@ -43,7 +48,7 @@
         </div>
 
         <div class="sidebar-badges">
-          <span class="badge badge-orange">v0.3.0</span>
+          <span class="badge badge-orange">v0.3.4</span>
           <span class="badge badge-green" id="mode-badge">Standalone</span>
           <span class="badge badge-blue" id="items-badge">0 items</span>
         </div>
@@ -381,7 +386,7 @@
             </div>
           </div>
           <div class="console-panel" id="console-panel" role="log" aria-label="Activity log">
-            <span class="log-inf">▶ Plugin SDK Example Playground v0.3.0 — initialising…</span><br />
+            <span class="log-inf">▶ Plugin SDK Example Playground v0.3.4 — initialising…</span><br />
           </div>
         </div>
       </div><!-- /.main-wrapper -->

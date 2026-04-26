@@ -121,6 +121,8 @@ export type JsonPatches = JsonPatch[];
 export interface PluginIdentity {
   id: string;
   version: string;
+  /** Major.minor host-plugin protocol version (for compatibility checks). */
+  apiVersion: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 /**
- * MemizySDK — v0.3.2
+ * MemizySDK — v0.3.4
  *
  * Entry point for Memizy plugins. Usage:
  *
@@ -13,6 +13,8 @@
  *  - A brand-aligned Shadow-DOM Standalone UI (study-set / progress loader).
  *  - Lifecycle events pushed by the host (`onConfigUpdate`, `onSessionAborted`).
  */
+
+declare const __SDK_VERSION__: string;
 
 import type { Methods, Connection } from 'penpal';
 import { WindowMessenger, connect } from 'penpal';
@@ -36,6 +38,11 @@ import {
   type StandaloneUiPosition,
 } from './standalone/StandaloneUI';
 
+// Fallback ensures it works even if run outside Vite (e.g., in some test runners)
+const SDK_VERSION = typeof __SDK_VERSION__ !== 'undefined' ? __SDK_VERSION__ : '0.3.4';
+// Extracts "0.3" from "0.3.4"
+const API_VERSION = SDK_VERSION.split('.').slice(0, 2).join('.');
+
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
@@ -43,30 +50,20 @@ import {
 /** When and how to show the built-in Standalone UI in dev mode. */
 export type StandaloneControlsMode = 'auto' | 'hidden';
 
-export interface MemizySDKOptions extends PluginIdentity {
-  /**
-   * Origins the plugin will accept messages from. Defaults to `['*']`
-   * (any origin) — set this to a stricter allow-list in production.
-   */
+export interface MemizySDKOptions {
+  /** The unique identifier of your plugin (e.g., 'com.example.my-plugin') */
+  id: string;
+  /** The release version of your plugin (e.g., '1.0.0') */
+  version: string;
+  /** Origins the plugin will accept messages from. Defaults to `['*']` */
   allowedOrigins?: (string | RegExp)[];
   /** Penpal handshake timeout in milliseconds. Defaults to 10_000. */
   handshakeTimeout?: number;
   /** Log lifecycle events to the console. Defaults to `false`. */
   debug?: boolean;
-
-  // ── Standalone-only options ──
-  /**
-   * Controls the Standalone UI gear and auto-open behaviour.
-   *  - `'auto'`   — shows the floating gear and auto-opens the modal when
-   *                 no data is available. (default)
-   *  - `'hidden'` — never shows the gear; the plugin triggers the modal
-   *                 via `sdk.openStandaloneUI()` if needed.
-   */
+  /** Controls the Standalone UI gear and auto-open behaviour. */
   standaloneControlsMode?: StandaloneControlsMode;
-  /**
-   * Corner where the floating gear anchors. Defaults to `'top-right'`.
-   * Only applies in standalone mode with `standaloneControlsMode: 'auto'`.
-   */
+  /** Corner where the floating gear anchors. */
   standaloneUiPosition?: StandaloneUiPosition;
 }
 
@@ -123,7 +120,11 @@ export class MemizySDK {
   private setUpdatedHandler: (() => void) | null = null;
 
   constructor(options: MemizySDKOptions) {
-    this.identity = { id: options.id, version: options.version };
+    this.identity = {
+      id: options.id,
+      version: options.version,
+      apiVersion: API_VERSION,
+    };
     this.allowedOrigins = options.allowedOrigins ?? ['*'];
     this.handshakeTimeout = options.handshakeTimeout ?? 10_000;
     this.debug = options.debug ?? false;

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import pkg from '../package.json';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sdkRoot = resolve(here, '..');
@@ -18,6 +19,9 @@ const sdkRoot = resolve(here, '..');
  */
 export default defineConfig({
   root: here,
+  define: {
+    __SDK_VERSION__: JSON.stringify(pkg.version),
+  },
   // Dev server + `example:build` both use relative paths so the bundle
   // works from any subdirectory. The GH-Pages build overrides this via
   // `--base=/plugin-sdk/` in the `example:build:pages` script.

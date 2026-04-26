@@ -7,7 +7,7 @@
 > [`plugin-api.md`](./plugin-api.md) instead.
 
 This document specifies the RPC contract the host must implement to talk to
-plugins that use `@memizy/plugin-sdk ≥ 0.3.0`.
+plugins that use `@memizy/plugin-sdk ≥ 0.3.4`.
 
 It is intentionally framework-agnostic: you can implement it with any
 Penpal v7 integration, in Vue, React, Svelte, or vanilla TS.
@@ -23,7 +23,7 @@ RPC channel over `postMessage` using [Penpal v7](https://github.com/Aaronius/pen
  ┌──────────────────┐                               ┌──────────────────┐
  │ Memizy Host      │ ──── HostApi (Plugin→Host) ─▶ │ Plugin <iframe>  │
  │ (Vue/React/…)    │                               │ @memizy/plugin-  │
- │                  │ ◀── PluginApi (Host→Plugin) ─ │ sdk v0.3.0+      │
+ │                  │ ◀── PluginApi (Host→Plugin) ─ │ sdk v0.3.4+      │
  └──────────────────┘                               └──────────────────┘
 ```
 
