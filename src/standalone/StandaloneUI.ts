@@ -244,8 +244,8 @@ export class StandaloneUI {
                    aria-label="Drop an OQSEP progress file or click to browse">
                 <div class="mz-drop-icon">&#x2191;</div>
                 <div><strong>Drop</strong> a progress file here</div>
-                <div>or click to browse (<code>.oqsep</code>, <code>.json</code>)</div>
-                <input type="file" accept=".oqsep,.json,application/json" data-input="progress-file" hidden />
+                <div>or click to browse (<code>.json</code>)</div>
+                <input type="file" accept=".json,application/json" data-input="progress-file" hidden />
               </div>
             </div>
           </div>

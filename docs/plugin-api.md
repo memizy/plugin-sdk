@@ -53,7 +53,10 @@ manifest to decide whether a study set is compatible with your plugin
     },
     "appSpecific": {
       "memizy": {
-        "minimumHostApiVersion": "0.3"
+        "pluginSdk": {
+          "apiVersion": "0.3",
+          "minimumHostApiVersion": "0.3"
+        }
       }
     }
   }
@@ -69,8 +72,9 @@ Key rules:
   `new MemizySDK({ id, version })`.
 - List only the item `types`, asset kinds, and `features` you actually
   support. If you only render flashcards, don't claim `"mcq-single"`.
-- `appSpecific.memizy.minimumHostApiVersion` guarantees the host can detect
-  required API compatibility (and prompt for updates) before loading the plugin.
+- `apiVersion` tells the host what RPC protocol version the plugin expects to speak.
+- `minimumHostApiVersion` tells the host the oldest version it can safely be loaded into.
+- Together, these allow the host to perform a "fail-fast" pre-flight check before loading the iframe.
 
 Both the playground (`example/index.html`) and the bare-bones demo
 (`example/minimal.html`) ship with a complete manifest you can copy
